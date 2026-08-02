@@ -1,0 +1,22 @@
+{
+  "d3ea0d02ab91": {
+    "connection_id": "d3ea0d02ab91",
+    "db_type": "POSTGRESQL",
+    "display_name": "Agial",
+    "database_name": "Agial",
+    "encrypted_credentials": "gAAAAABqbzzzakugzDjupJZhg5qAvo79id_skbdm9GgyfY1HPCCwPnDyGQdRkMj69pxGtZ0eptoQR6U5qF5KBLXYUCKfSO7IqXZz41PnLiYLwr9hxsZglXSihwqtBRGaQtLuYCG2WTOu4iz5T-dKhGesfQstsT3LWHKid7PlNAZUuWGRvzPI2oo=",
+    "masked_url": "postgresql://postgres:\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022@localhost:5433/Agial?sslmode=allow",
+    "created_at": 1785674995.9240663,
+    "updated_at": 1785674995.9240663
+  },
+  "de82479d233d": {
+    "connection_id": "de82479d233d",
+    "db_type": "POSTGRESQL",
+    "display_name": "Agial",
+    "database_name": "Agial",
+    "encrypted_credentials": "gAAAAABqb2cK9f4DDFjXHonhhMgs2RYQOVAvk9bD4qWlRlDEcs_Lmz1S6BjAFxc24NU4g3AOtO2k8OswH_ZaKjo5Ngzzhm_IxaeuEPByKJnDYmjQmTSPtIYFVBv9aP2t4HjoDoaY8Iao8zJQZgCqe8XhEuToF1nSSA==",
+    "masked_url": "postgresql://postgres:\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022@localhost:5433/Agial",
+    "created_at": 1785685770.6843796,
+    "updated_at": 1785685770.6843796
+  }
+}

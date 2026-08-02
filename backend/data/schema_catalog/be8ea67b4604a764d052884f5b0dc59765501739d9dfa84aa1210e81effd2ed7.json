@@ -1,0 +1,1320 @@
+{
+  "fingerprint": "be8ea67b4604a764d052884f5b0dc59765501739d9dfa84aa1210e81effd2ed7",
+  "dialect": "SQLITE",
+  "database_name": "Chinook",
+  "tables": {
+    "Album": {
+      "name": "Album",
+      "columns": [
+        {
+          "name": "AlbumId",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": true,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Title",
+          "type": "NVARCHAR(160)",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "For Those About To Rock We Salute You",
+            "Balls to the Wall",
+            "Restless and Wild"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "ArtistId",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": true,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        }
+      ],
+      "primary_key": [
+        "AlbumId"
+      ],
+      "foreign_keys": [
+        {
+          "constrained_columns": [
+            "ArtistId"
+          ],
+          "referred_schema": null,
+          "referred_table": "Artist",
+          "referred_columns": [
+            "ArtistId"
+          ]
+        }
+      ],
+      "indexes": [
+        {
+          "name": "IFK_AlbumArtistId",
+          "columns": [
+            "ArtistId"
+          ],
+          "unique": 0
+        }
+      ],
+      "row_count": 347,
+      "fk_degree": 2,
+      "description": null,
+      "synonyms": [],
+      "embedding": null
+    },
+    "Artist": {
+      "name": "Artist",
+      "columns": [
+        {
+          "name": "ArtistId",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": true,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Name",
+          "type": "NVARCHAR(120)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "AC/DC",
+            "Accept",
+            "Aerosmith"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        }
+      ],
+      "primary_key": [
+        "ArtistId"
+      ],
+      "foreign_keys": [],
+      "indexes": [],
+      "row_count": 275,
+      "fk_degree": 1,
+      "description": null,
+      "synonyms": [],
+      "embedding": null
+    },
+    "Customer": {
+      "name": "Customer",
+      "columns": [
+        {
+          "name": "CustomerId",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": true,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "FirstName",
+          "type": "NVARCHAR(40)",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Luís",
+            "Leonie",
+            "François"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "LastName",
+          "type": "NVARCHAR(20)",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Gonçalves",
+            "Köhler",
+            "Tremblay"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Company",
+          "type": "NVARCHAR(80)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "JetBrains s.r.o.",
+            "Woodstock Discos",
+            "Banco do Brasil S.A."
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Address",
+          "type": "NVARCHAR(70)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Av. Brigadeiro Faria Lima, 2170",
+            "Theodor-Heuss-Straße 34",
+            "1498 rue Bélanger"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "City",
+          "type": "NVARCHAR(40)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "São José dos Campos",
+            "Stuttgart",
+            "Montréal"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "State",
+          "type": "NVARCHAR(40)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "SP",
+            "QC",
+            "RJ"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Country",
+          "type": "NVARCHAR(40)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Brazil",
+            "Germany",
+            "Canada"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "PostalCode",
+          "type": "NVARCHAR(10)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "12227-000",
+            "70174",
+            "H2G 1A7"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Phone",
+          "type": "NVARCHAR(24)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Fax",
+          "type": "NVARCHAR(24)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Email",
+          "type": "NVARCHAR(60)",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "SupportRepId",
+          "type": "INTEGER",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": true,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        }
+      ],
+      "primary_key": [
+        "CustomerId"
+      ],
+      "foreign_keys": [
+        {
+          "constrained_columns": [
+            "SupportRepId"
+          ],
+          "referred_schema": null,
+          "referred_table": "Employee",
+          "referred_columns": [
+            "EmployeeId"
+          ]
+        }
+      ],
+      "indexes": [
+        {
+          "name": "IFK_CustomerSupportRepId",
+          "columns": [
+            "SupportRepId"
+          ],
+          "unique": 0
+        }
+      ],
+      "row_count": 59,
+      "fk_degree": 2,
+      "description": null,
+      "synonyms": [],
+      "embedding": null
+    },
+    "Employee": {
+      "name": "Employee",
+      "columns": [
+        {
+          "name": "EmployeeId",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": true,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "LastName",
+          "type": "NVARCHAR(20)",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Adams",
+            "Edwards",
+            "Peacock"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "FirstName",
+          "type": "NVARCHAR(20)",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Andrew",
+            "Nancy",
+            "Jane"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Title",
+          "type": "NVARCHAR(30)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "General Manager",
+            "Sales Manager",
+            "Sales Support Agent"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "ReportsTo",
+          "type": "INTEGER",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": true,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "BirthDate",
+          "type": "DATETIME",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": "1947-09-19 00:00:00 to 1973-08-29 00:00:00",
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "HireDate",
+          "type": "DATETIME",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": "2002-04-01 00:00:00 to 2004-03-04 00:00:00",
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Address",
+          "type": "NVARCHAR(70)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "11120 Jasper Ave NW",
+            "825 8 Ave SW",
+            "1111 6 Ave SW"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "City",
+          "type": "NVARCHAR(40)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Edmonton",
+            "Calgary",
+            "Lethbridge"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "State",
+          "type": "NVARCHAR(40)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "AB"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Country",
+          "type": "NVARCHAR(40)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Canada"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "PostalCode",
+          "type": "NVARCHAR(10)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "T5K 2N1",
+            "T2P 2T3",
+            "T2P 5M5"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Phone",
+          "type": "NVARCHAR(24)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Fax",
+          "type": "NVARCHAR(24)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Email",
+          "type": "NVARCHAR(60)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        }
+      ],
+      "primary_key": [
+        "EmployeeId"
+      ],
+      "foreign_keys": [
+        {
+          "constrained_columns": [
+            "ReportsTo"
+          ],
+          "referred_schema": null,
+          "referred_table": "Employee",
+          "referred_columns": [
+            "EmployeeId"
+          ]
+        }
+      ],
+      "indexes": [
+        {
+          "name": "IFK_EmployeeReportsTo",
+          "columns": [
+            "ReportsTo"
+          ],
+          "unique": 0
+        }
+      ],
+      "row_count": 8,
+      "fk_degree": 3,
+      "description": null,
+      "synonyms": [],
+      "embedding": null
+    },
+    "Genre": {
+      "name": "Genre",
+      "columns": [
+        {
+          "name": "GenreId",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": true,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Name",
+          "type": "NVARCHAR(120)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Rock",
+            "Jazz",
+            "Metal"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        }
+      ],
+      "primary_key": [
+        "GenreId"
+      ],
+      "foreign_keys": [],
+      "indexes": [],
+      "row_count": 25,
+      "fk_degree": 1,
+      "description": null,
+      "synonyms": [],
+      "embedding": null
+    },
+    "Invoice": {
+      "name": "Invoice",
+      "columns": [
+        {
+          "name": "InvoiceId",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": true,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "CustomerId",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": true,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "InvoiceDate",
+          "type": "DATETIME",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": "2021-01-01 00:00:00 to 2025-12-22 00:00:00",
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "BillingAddress",
+          "type": "NVARCHAR(70)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Theodor-Heuss-Straße 34",
+            "Ullevålsveien 14",
+            "Grétrystraat 63"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "BillingCity",
+          "type": "NVARCHAR(40)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Stuttgart",
+            "Oslo",
+            "Brussels"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "BillingState",
+          "type": "NVARCHAR(40)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "AB",
+            "MA",
+            "Dublin"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "BillingCountry",
+          "type": "NVARCHAR(40)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Germany",
+            "Norway",
+            "Belgium"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "BillingPostalCode",
+          "type": "NVARCHAR(10)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "70174",
+            "0171",
+            "1000"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Total",
+          "type": "NUMERIC(10, 2)",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        }
+      ],
+      "primary_key": [
+        "InvoiceId"
+      ],
+      "foreign_keys": [
+        {
+          "constrained_columns": [
+            "CustomerId"
+          ],
+          "referred_schema": null,
+          "referred_table": "Customer",
+          "referred_columns": [
+            "CustomerId"
+          ]
+        }
+      ],
+      "indexes": [
+        {
+          "name": "IFK_InvoiceCustomerId",
+          "columns": [
+            "CustomerId"
+          ],
+          "unique": 0
+        }
+      ],
+      "row_count": 412,
+      "fk_degree": 2,
+      "description": null,
+      "synonyms": [],
+      "embedding": null
+    },
+    "InvoiceLine": {
+      "name": "InvoiceLine",
+      "columns": [
+        {
+          "name": "InvoiceLineId",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": true,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "InvoiceId",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": true,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "TrackId",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": true,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "UnitPrice",
+          "type": "NUMERIC(10, 2)",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Quantity",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        }
+      ],
+      "primary_key": [
+        "InvoiceLineId"
+      ],
+      "foreign_keys": [
+        {
+          "constrained_columns": [
+            "TrackId"
+          ],
+          "referred_schema": null,
+          "referred_table": "Track",
+          "referred_columns": [
+            "TrackId"
+          ]
+        },
+        {
+          "constrained_columns": [
+            "InvoiceId"
+          ],
+          "referred_schema": null,
+          "referred_table": "Invoice",
+          "referred_columns": [
+            "InvoiceId"
+          ]
+        }
+      ],
+      "indexes": [
+        {
+          "name": "IFK_InvoiceLineInvoiceId",
+          "columns": [
+            "InvoiceId"
+          ],
+          "unique": 0
+        },
+        {
+          "name": "IFK_InvoiceLineTrackId",
+          "columns": [
+            "TrackId"
+          ],
+          "unique": 0
+        }
+      ],
+      "row_count": 2240,
+      "fk_degree": 2,
+      "description": null,
+      "synonyms": [],
+      "embedding": null
+    },
+    "MediaType": {
+      "name": "MediaType",
+      "columns": [
+        {
+          "name": "MediaTypeId",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": true,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Name",
+          "type": "NVARCHAR(120)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "MPEG audio file",
+            "Protected AAC audio file",
+            "Protected MPEG-4 video file"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        }
+      ],
+      "primary_key": [
+        "MediaTypeId"
+      ],
+      "foreign_keys": [],
+      "indexes": [],
+      "row_count": 5,
+      "fk_degree": 1,
+      "description": null,
+      "synonyms": [],
+      "embedding": null
+    },
+    "Playlist": {
+      "name": "Playlist",
+      "columns": [
+        {
+          "name": "PlaylistId",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": true,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Name",
+          "type": "NVARCHAR(120)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Music",
+            "Movies",
+            "TV Shows"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        }
+      ],
+      "primary_key": [
+        "PlaylistId"
+      ],
+      "foreign_keys": [],
+      "indexes": [],
+      "row_count": 18,
+      "fk_degree": 1,
+      "description": null,
+      "synonyms": [],
+      "embedding": null
+    },
+    "PlaylistTrack": {
+      "name": "PlaylistTrack",
+      "columns": [
+        {
+          "name": "PlaylistId",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": true,
+          "is_foreign_key": true,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "TrackId",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": true,
+          "is_foreign_key": true,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        }
+      ],
+      "primary_key": [
+        "PlaylistId",
+        "TrackId"
+      ],
+      "foreign_keys": [
+        {
+          "constrained_columns": [
+            "TrackId"
+          ],
+          "referred_schema": null,
+          "referred_table": "Track",
+          "referred_columns": [
+            "TrackId"
+          ]
+        },
+        {
+          "constrained_columns": [
+            "PlaylistId"
+          ],
+          "referred_schema": null,
+          "referred_table": "Playlist",
+          "referred_columns": [
+            "PlaylistId"
+          ]
+        }
+      ],
+      "indexes": [
+        {
+          "name": "IFK_PlaylistTrackPlaylistId",
+          "columns": [
+            "PlaylistId"
+          ],
+          "unique": 0
+        },
+        {
+          "name": "IFK_PlaylistTrackTrackId",
+          "columns": [
+            "TrackId"
+          ],
+          "unique": 0
+        }
+      ],
+      "row_count": 8715,
+      "fk_degree": 2,
+      "description": null,
+      "synonyms": [],
+      "embedding": null
+    },
+    "Track": {
+      "name": "Track",
+      "columns": [
+        {
+          "name": "TrackId",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": true,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Name",
+          "type": "NVARCHAR(200)",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "For Those About To Rock (We Salute You)",
+            "Balls to the Wall",
+            "Fast As a Shark"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "AlbumId",
+          "type": "INTEGER",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": true,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "MediaTypeId",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": true,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "GenreId",
+          "type": "INTEGER",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": true,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Composer",
+          "type": "NVARCHAR(220)",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Deaffy & R.A. Smith-Diesel",
+            "AC/DC",
+            "Steven Tyler, Joe Perry"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Milliseconds",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Bytes",
+          "type": "INTEGER",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "UnitPrice",
+          "type": "NUMERIC(10, 2)",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        }
+      ],
+      "primary_key": [
+        "TrackId"
+      ],
+      "foreign_keys": [
+        {
+          "constrained_columns": [
+            "MediaTypeId"
+          ],
+          "referred_schema": null,
+          "referred_table": "MediaType",
+          "referred_columns": [
+            "MediaTypeId"
+          ]
+        },
+        {
+          "constrained_columns": [
+            "GenreId"
+          ],
+          "referred_schema": null,
+          "referred_table": "Genre",
+          "referred_columns": [
+            "GenreId"
+          ]
+        },
+        {
+          "constrained_columns": [
+            "AlbumId"
+          ],
+          "referred_schema": null,
+          "referred_table": "Album",
+          "referred_columns": [
+            "AlbumId"
+          ]
+        }
+      ],
+      "indexes": [
+        {
+          "name": "IFK_TrackAlbumId",
+          "columns": [
+            "AlbumId"
+          ],
+          "unique": 0
+        },
+        {
+          "name": "IFK_TrackGenreId",
+          "columns": [
+            "GenreId"
+          ],
+          "unique": 0
+        },
+        {
+          "name": "IFK_TrackMediaTypeId",
+          "columns": [
+            "MediaTypeId"
+          ],
+          "unique": 0
+        }
+      ],
+      "row_count": 3503,
+      "fk_degree": 5,
+      "description": null,
+      "synonyms": [],
+      "embedding": null
+    }
+  },
+  "built_at": 1785697467.5308173,
+  "glossary_enriched": false,
+  "glossary_version": 0,
+  "embeddings_built": false,
+  "embedding_model": null,
+  "learned_corrections": []
+}

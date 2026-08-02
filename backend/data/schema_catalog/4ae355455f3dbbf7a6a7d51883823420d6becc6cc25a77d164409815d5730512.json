@@ -1,0 +1,1621 @@
+{
+  "fingerprint": "4ae355455f3dbbf7a6a7d51883823420d6becc6cc25a77d164409815d5730512",
+  "dialect": "SQLITE",
+  "database_name": "Northwind",
+  "tables": {
+    "Categories": {
+      "name": "Categories",
+      "columns": [
+        {
+          "name": "CategoryID",
+          "type": "INTEGER",
+          "nullable": true,
+          "primary_key": true,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "CategoryName",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Beverages",
+            "Condiments",
+            "Confections"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Description",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Desserts, candies, and sweet breads",
+            "Cheeses",
+            "Breads, crackers, pasta, and cereal"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Picture",
+          "type": "BLOB",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        }
+      ],
+      "primary_key": [
+        "CategoryID"
+      ],
+      "foreign_keys": [],
+      "indexes": [],
+      "row_count": 8,
+      "fk_degree": 1,
+      "description": null,
+      "synonyms": []
+    },
+    "CustomerCustomerDemo": {
+      "name": "CustomerCustomerDemo",
+      "columns": [
+        {
+          "name": "CustomerID",
+          "type": "TEXT",
+          "nullable": false,
+          "primary_key": true,
+          "is_foreign_key": true,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "CustomerTypeID",
+          "type": "TEXT",
+          "nullable": false,
+          "primary_key": true,
+          "is_foreign_key": true,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        }
+      ],
+      "primary_key": [
+        "CustomerID",
+        "CustomerTypeID"
+      ],
+      "foreign_keys": [
+        {
+          "constrained_columns": [
+            "CustomerTypeID"
+          ],
+          "referred_table": "CustomerDemographics",
+          "referred_columns": [
+            "CustomerTypeID"
+          ]
+        },
+        {
+          "constrained_columns": [
+            "CustomerID"
+          ],
+          "referred_table": "Customers",
+          "referred_columns": [
+            "CustomerID"
+          ]
+        }
+      ],
+      "indexes": [],
+      "row_count": 0,
+      "fk_degree": 2,
+      "description": null,
+      "synonyms": []
+    },
+    "CustomerDemographics": {
+      "name": "CustomerDemographics",
+      "columns": [
+        {
+          "name": "CustomerTypeID",
+          "type": "TEXT",
+          "nullable": false,
+          "primary_key": true,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "CustomerDesc",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        }
+      ],
+      "primary_key": [
+        "CustomerTypeID"
+      ],
+      "foreign_keys": [],
+      "indexes": [],
+      "row_count": 0,
+      "fk_degree": 1,
+      "description": null,
+      "synonyms": []
+    },
+    "Customers": {
+      "name": "Customers",
+      "columns": [
+        {
+          "name": "CustomerID",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": true,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "CompanyName",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Alfreds Futterkiste",
+            "Ana Trujillo Emparedados y helados",
+            "Antonio Moreno Taquería"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "ContactName",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Maria Anders",
+            "Ana Trujillo",
+            "Antonio Moreno"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "ContactTitle",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Sales Representative",
+            "Owner",
+            "Order Administrator"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Address",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Obere Str. 57",
+            "Avda. de la Constitución 2222",
+            "Mataderos  2312"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "City",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Berlin",
+            "México D.F.",
+            "London"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Region",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Western Europe",
+            "Central America",
+            "British Isles"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "PostalCode",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "12209",
+            "05021",
+            "05023"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Country",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Germany",
+            "Mexico",
+            "UK"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Phone",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Fax",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        }
+      ],
+      "primary_key": [
+        "CustomerID"
+      ],
+      "foreign_keys": [],
+      "indexes": [],
+      "row_count": 93,
+      "fk_degree": 2,
+      "description": null,
+      "synonyms": []
+    },
+    "EmployeeTerritories": {
+      "name": "EmployeeTerritories",
+      "columns": [
+        {
+          "name": "EmployeeID",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": true,
+          "is_foreign_key": true,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "TerritoryID",
+          "type": "TEXT",
+          "nullable": false,
+          "primary_key": true,
+          "is_foreign_key": true,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        }
+      ],
+      "primary_key": [
+        "EmployeeID",
+        "TerritoryID"
+      ],
+      "foreign_keys": [
+        {
+          "constrained_columns": [
+            "TerritoryID"
+          ],
+          "referred_table": "Territories",
+          "referred_columns": [
+            "TerritoryID"
+          ]
+        },
+        {
+          "constrained_columns": [
+            "EmployeeID"
+          ],
+          "referred_table": "Employees",
+          "referred_columns": [
+            "EmployeeID"
+          ]
+        }
+      ],
+      "indexes": [],
+      "row_count": 49,
+      "fk_degree": 2,
+      "description": null,
+      "synonyms": []
+    },
+    "Employees": {
+      "name": "Employees",
+      "columns": [
+        {
+          "name": "EmployeeID",
+          "type": "INTEGER",
+          "nullable": true,
+          "primary_key": true,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "LastName",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Davolio",
+            "Fuller",
+            "Leverling"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "FirstName",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Nancy",
+            "Andrew",
+            "Janet"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Title",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Sales Representative",
+            "Vice President, Sales",
+            "Sales Manager"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "TitleOfCourtesy",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Ms.",
+            "Dr.",
+            "Mrs."
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "BirthDate",
+          "type": "DATE",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": "1957-09-19 to 1986-01-27",
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "HireDate",
+          "type": "DATE",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": "2012-04-01 to 2014-11-15",
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Address",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "507 - 20th Ave. E.Apt. 2A",
+            "908 W. Capital Way",
+            "722 Moss Bay Blvd."
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "City",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Seattle",
+            "Tacoma",
+            "Kirkland"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Region",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "North America",
+            "British Isles"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "PostalCode",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "98122",
+            "98401",
+            "98033"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Country",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "HomePhone",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Extension",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Photo",
+          "type": "BLOB",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Notes",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "ReportsTo",
+          "type": "INTEGER",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": true,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "PhotoPath",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        }
+      ],
+      "primary_key": [
+        "EmployeeID"
+      ],
+      "foreign_keys": [
+        {
+          "constrained_columns": [
+            "ReportsTo"
+          ],
+          "referred_table": "Employees",
+          "referred_columns": [
+            "EmployeeID"
+          ]
+        }
+      ],
+      "indexes": [],
+      "row_count": 9,
+      "fk_degree": 4,
+      "description": null,
+      "synonyms": []
+    },
+    "Order Details": {
+      "name": "Order Details",
+      "columns": [
+        {
+          "name": "OrderID",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": true,
+          "is_foreign_key": true,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "ProductID",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": true,
+          "is_foreign_key": true,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "UnitPrice",
+          "type": "NUMERIC",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Quantity",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Discount",
+          "type": "REAL",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        }
+      ],
+      "primary_key": [
+        "OrderID",
+        "ProductID"
+      ],
+      "foreign_keys": [
+        {
+          "constrained_columns": [
+            "ProductID"
+          ],
+          "referred_table": "Products",
+          "referred_columns": [
+            "ProductID"
+          ]
+        },
+        {
+          "constrained_columns": [
+            "OrderID"
+          ],
+          "referred_table": "Orders",
+          "referred_columns": [
+            "OrderID"
+          ]
+        }
+      ],
+      "indexes": [],
+      "row_count": 609283,
+      "fk_degree": 2,
+      "description": null,
+      "synonyms": []
+    },
+    "Orders": {
+      "name": "Orders",
+      "columns": [
+        {
+          "name": "OrderID",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": true,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "CustomerID",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": true,
+          "samples": [
+            "VINET",
+            "TOMSP",
+            "HANAR"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "EmployeeID",
+          "type": "INTEGER",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": true,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "OrderDate",
+          "type": "DATETIME",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": "2012-07-10 15:40:46 to 2023-10-28 00:09:48",
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "RequiredDate",
+          "type": "DATETIME",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": "2012-07-12 11:00:21 to 2023-12-14 23:09:18",
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "ShippedDate",
+          "type": "DATETIME",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": "2012-07-13 21:20:47 to 2023-11-19 02:55:24",
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "ShipVia",
+          "type": "INTEGER",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": true,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Freight",
+          "type": "NUMERIC",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "ShipName",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Vins et alcools Chevalier",
+            "Toms Spezialitäten",
+            "Hanari Carnes"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "ShipAddress",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "59 rue de l-Abbaye",
+            "Luisenstr. 48",
+            "Rua do Paço, 67"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "ShipCity",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Reims",
+            "Münster",
+            "Rio de Janeiro"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "ShipRegion",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Western Europe",
+            "South America",
+            "Central America"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "ShipPostalCode",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "51100",
+            "44087",
+            "05454-876"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "ShipCountry",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "France",
+            "Germany",
+            "Brazil"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        }
+      ],
+      "primary_key": [
+        "OrderID"
+      ],
+      "foreign_keys": [
+        {
+          "constrained_columns": [
+            "ShipVia"
+          ],
+          "referred_table": "Shippers",
+          "referred_columns": [
+            "ShipperID"
+          ]
+        },
+        {
+          "constrained_columns": [
+            "CustomerID"
+          ],
+          "referred_table": "Customers",
+          "referred_columns": [
+            "CustomerID"
+          ]
+        },
+        {
+          "constrained_columns": [
+            "EmployeeID"
+          ],
+          "referred_table": "Employees",
+          "referred_columns": [
+            "EmployeeID"
+          ]
+        }
+      ],
+      "indexes": [],
+      "row_count": 16282,
+      "fk_degree": 4,
+      "description": null,
+      "synonyms": []
+    },
+    "Products": {
+      "name": "Products",
+      "columns": [
+        {
+          "name": "ProductID",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": true,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "ProductName",
+          "type": "TEXT",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Chai",
+            "Chang",
+            "Aniseed Syrup"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "SupplierID",
+          "type": "INTEGER",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": true,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "CategoryID",
+          "type": "INTEGER",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": true,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "QuantityPerUnit",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "10 boxes x 20 bags",
+            "24 - 12 oz bottles",
+            "12 - 550 ml bottles"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "UnitPrice",
+          "type": "NUMERIC",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "UnitsInStock",
+          "type": "INTEGER",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "UnitsOnOrder",
+          "type": "INTEGER",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "ReorderLevel",
+          "type": "INTEGER",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Discontinued",
+          "type": "TEXT",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "0",
+            "1"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        }
+      ],
+      "primary_key": [
+        "ProductID"
+      ],
+      "foreign_keys": [
+        {
+          "constrained_columns": [
+            "SupplierID"
+          ],
+          "referred_table": "Suppliers",
+          "referred_columns": [
+            "SupplierID"
+          ]
+        },
+        {
+          "constrained_columns": [
+            "CategoryID"
+          ],
+          "referred_table": "Categories",
+          "referred_columns": [
+            "CategoryID"
+          ]
+        }
+      ],
+      "indexes": [],
+      "row_count": 77,
+      "fk_degree": 3,
+      "description": null,
+      "synonyms": []
+    },
+    "Regions": {
+      "name": "Regions",
+      "columns": [
+        {
+          "name": "RegionID",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": true,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "RegionDescription",
+          "type": "TEXT",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Eastern",
+            "Western",
+            "Northern"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        }
+      ],
+      "primary_key": [
+        "RegionID"
+      ],
+      "foreign_keys": [],
+      "indexes": [],
+      "row_count": 4,
+      "fk_degree": 1,
+      "description": null,
+      "synonyms": []
+    },
+    "Shippers": {
+      "name": "Shippers",
+      "columns": [
+        {
+          "name": "ShipperID",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": true,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "CompanyName",
+          "type": "TEXT",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Speedy Express",
+            "United Package",
+            "Federal Shipping"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Phone",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "(503) 555-9831",
+            "(503) 555-3199",
+            "(503) 555-9931"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        }
+      ],
+      "primary_key": [
+        "ShipperID"
+      ],
+      "foreign_keys": [],
+      "indexes": [],
+      "row_count": 3,
+      "fk_degree": 1,
+      "description": null,
+      "synonyms": []
+    },
+    "Suppliers": {
+      "name": "Suppliers",
+      "columns": [
+        {
+          "name": "SupplierID",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": true,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "CompanyName",
+          "type": "TEXT",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Exotic Liquids",
+            "New Orleans Cajun Delights",
+            "Grandma Kelly's Homestead"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "ContactName",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Charlotte Cooper",
+            "Shelley Burke",
+            "Regina Murphy"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "ContactTitle",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Purchasing Manager",
+            "Order Administrator",
+            "Sales Representative"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Address",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "49 Gilbert St.",
+            "P.O. Box 78934",
+            "707 Oxford Rd."
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "City",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "London",
+            "New Orleans",
+            "Ann Arbor"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Region",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "British Isles",
+            "North America",
+            "Eastern Asia"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "PostalCode",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "EC1 4SD",
+            "70117",
+            "48104"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Country",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "UK",
+            "USA",
+            "Japan"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Phone",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "Fax",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "HomePage",
+          "type": "TEXT",
+          "nullable": true,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        }
+      ],
+      "primary_key": [
+        "SupplierID"
+      ],
+      "foreign_keys": [],
+      "indexes": [],
+      "row_count": 29,
+      "fk_degree": 1,
+      "description": null,
+      "synonyms": []
+    },
+    "Territories": {
+      "name": "Territories",
+      "columns": [
+        {
+          "name": "TerritoryID",
+          "type": "TEXT",
+          "nullable": false,
+          "primary_key": true,
+          "is_foreign_key": false,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "TerritoryDescription",
+          "type": "TEXT",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": false,
+          "samples": [
+            "Westboro",
+            "Bedford",
+            "Georgetow"
+          ],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        },
+        {
+          "name": "RegionID",
+          "type": "INTEGER",
+          "nullable": false,
+          "primary_key": false,
+          "is_foreign_key": true,
+          "samples": [],
+          "date_range": null,
+          "distinct_count": null,
+          "null_fraction": null,
+          "description": null,
+          "synonyms": []
+        }
+      ],
+      "primary_key": [
+        "TerritoryID"
+      ],
+      "foreign_keys": [
+        {
+          "constrained_columns": [
+            "RegionID"
+          ],
+          "referred_table": "Regions",
+          "referred_columns": [
+            "RegionID"
+          ]
+        }
+      ],
+      "indexes": [],
+      "row_count": 53,
+      "fk_degree": 2,
+      "description": null,
+      "synonyms": []
+    }
+  },
+  "built_at": 1785150027.5508938,
+  "glossary_enriched": false,
+  "glossary_version": 0
+}

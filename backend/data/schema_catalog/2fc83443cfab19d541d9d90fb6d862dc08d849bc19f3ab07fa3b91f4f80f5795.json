@@ -1,0 +1,12 @@
+{
+  "fingerprint": "2fc83443cfab19d541d9d90fb6d862dc08d849bc19f3ab07fa3b91f4f80f5795",
+  "dialect": "SQLITE",
+  "database_name": "Chinook",
+  "tables": {},
+  "built_at": 1785671740.4843855,
+  "glossary_enriched": false,
+  "glossary_version": 0,
+  "embeddings_built": false,
+  "embedding_model": null,
+  "learned_corrections": []
+}

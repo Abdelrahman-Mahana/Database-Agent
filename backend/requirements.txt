@@ -1,0 +1,28 @@
+fastapi>=0.109.2
+uvicorn[standard]>=0.27.1
+sqlalchemy>=2.0.27
+pydantic>=2.7.4
+pydantic-settings>=2.1.0
+python-dotenv>=1.0.1
+httpx>=0.26.0
+langchain>=0.2.0
+langchain-core>=0.2.0
+langchain-community>=0.2.0
+langchain-openai>=0.1.0
+langchain-ollama>=0.1.0
+# Phase 2 (rebuild plan): agentic orchestration graph. Only imported lazily
+# when USE_LANGGRAPH_ORCHESTRATOR=true (see app/agents/graph_orchestrator.py),
+# so the app still runs without it if this isn't installed yet. Verify the
+# latest compatible version with `pip index versions langgraph` before
+# installing - pinned loosely on purpose since this was added offline.
+langgraph>=0.2.28
+sqlparse>=0.4.4
+psycopg2-binary
+pymysql>=1.1.0
+openai
+sqlglot
+cachetools
+loguru
+pytest>=8.0.2
+pytest-asyncio>=0.23.5
+python-multipart

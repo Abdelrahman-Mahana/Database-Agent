@@ -1,0 +1,30 @@
+[project]
+name = "ai-database-analyst"
+version = "0.1.0"
+description = "Core Foundation for AI Database Analyst Agent"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.111.0",
+    "uvicorn>=0.30.1",
+    "dependency-injector>=4.41.0",
+    "pydantic-settings>=2.3.4",
+    "structlog>=24.2.0",
+    "python-json-logger>=2.0.7",
+    "sqlalchemy>=2.0.31",
+    "psycopg2-binary>=2.9.9",
+    "pymysql>=1.1.1",
+    "pyodbc>=5.1.0",
+    "oracledb>=2.2.1",
+    "snowflake-sqlalchemy>=1.6.1",
+    "sqlalchemy-bigquery>=1.11.0",
+    "sqlalchemy-redshift>=0.8.14",
+    "clickhouse-sqlalchemy>=0.3.2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+managed = true
