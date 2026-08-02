@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { apiClient } from "@/services/api";
-import { SchemaResponse, TableSchema } from "@/types/api";
+import { SchemaResponse } from "@/types/api";
 import { useAppStore } from "@/store/useAppStore";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
