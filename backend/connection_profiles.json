@@ -14,9 +14,9 @@
     "db_type": "POSTGRESQL",
     "display_name": "Agial",
     "database_name": "Agial",
-    "encrypted_credentials": "gAAAAABqb2cK9f4DDFjXHonhhMgs2RYQOVAvk9bD4qWlRlDEcs_Lmz1S6BjAFxc24NU4g3AOtO2k8OswH_ZaKjo5Ngzzhm_IxaeuEPByKJnDYmjQmTSPtIYFVBv9aP2t4HjoDoaY8Iao8zJQZgCqe8XhEuToF1nSSA==",
+    "encrypted_credentials": "gAAAAABqb7ccjx_9kPsVaCxkPlReFqgw6uhX5r1kB3gGZErMOycdml6g-wLl6u3LhdFONJbcS7mS3Ec0gf7h-91WxpT69P_GpN67ftD3PRojrJtQpY0TVHwLTuhdEQj_avdFnXrJls3X9jvInThPrYNuRr2ODEIYzg==",
     "masked_url": "postgresql://postgres:\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022@localhost:5433/Agial",
-    "created_at": 1785685770.6843796,
-    "updated_at": 1785685770.6843796
+    "created_at": 1785706268.7216048,
+    "updated_at": 1785706268.721605
   }
 }
