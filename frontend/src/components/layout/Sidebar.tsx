@@ -26,7 +26,6 @@ export function Sidebar() {
         </div>
         <div className="flex flex-col">
           <span className="text-sm font-bold leading-tight">Database Analyst</span>
-          <span className="text-xs text-muted-foreground">Enterprise Agent</span>
         </div>
       </div>
 
@@ -55,7 +54,7 @@ export function Sidebar() {
           );
         })}
       </nav>
-      
+
       <div className="mt-auto px-2">
         <Link href="/connect" className="flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
           <Database className="h-4 w-4" />
