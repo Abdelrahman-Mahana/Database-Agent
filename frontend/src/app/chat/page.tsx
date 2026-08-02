@@ -10,17 +10,17 @@ import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { 
-  MessageSquare, 
-  Send, 
-  Bot, 
-  User, 
-  Code, 
-  Table as TableIcon, 
-  Sparkles, 
-  Trash2, 
-  Copy, 
-  Check, 
+import {
+  MessageSquare,
+  Send,
+  Bot,
+  User,
+  Code,
+  Table as TableIcon,
+  Sparkles,
+  Trash2,
+  Copy,
+  Check,
   AlertTriangle,
   Lightbulb,
   ArrowRight,
@@ -28,23 +28,23 @@ import {
   ChevronRight,
   Eye,
   EyeOff,
-  BarChart3, 
-  LineChart as LineIcon, 
-  PieChart as PieIcon, 
+  BarChart3,
+  LineChart as LineIcon,
+  PieChart as PieIcon,
   TrendingUp
 } from "lucide-react";
-import { 
-  ResponsiveContainer, 
-  BarChart, 
-  Bar, 
-  LineChart, 
-  Line, 
-  PieChart, 
-  Pie, 
-  Cell, 
-  XAxis, 
-  YAxis, 
-  Tooltip, 
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  LineChart,
+  Line,
+  PieChart,
+  Pie,
+  Cell,
+  XAxis,
+  YAxis,
+  Tooltip,
   Legend,
   CartesianGrid
 } from "recharts";
@@ -164,10 +164,10 @@ function FormattedReportText({ text, isRtl }: { text: string; isRtl: boolean }) 
   );
 }
 
-function QueryResultSection({ 
-  response, 
-  index, 
-  copyToClipboard, 
+function QueryResultSection({
+  response,
+  index,
+  copyToClipboard,
   copiedIndex,
   isRtl,
   preferences = {}
@@ -185,9 +185,9 @@ function QueryResultSection({
 
   // Chart suggestion parsing & data preparation
   const hasChartSuggestion = Boolean(
-    response.chart_suggestion && 
-    response.chart_suggestion.should_chart && 
-    response.results && 
+    response.chart_suggestion &&
+    response.chart_suggestion.should_chart &&
+    response.results &&
     response.results.length > 0
   );
   const suggestedType = response.chart_suggestion?.chart_type;
@@ -203,12 +203,12 @@ function QueryResultSection({
 
   const chartData = hasChartSuggestion && response.results
     ? response.results.slice(0, 25).map((row, idx) => {
-        const rawVal = row[yCol];
-        const numVal = typeof rawVal === "number" ? rawVal : parseFloat(String(rawVal).replace(/[^0-9.-]+/g, ""));
-        const finalVal = isNaN(numVal) ? 0 : numVal;
-        const labelVal = row[xCol] !== undefined && row[xCol] !== null ? String(row[xCol]) : `#${idx + 1}`;
-        return { ...row, _x: labelVal, _y: finalVal };
-      })
+      const rawVal = row[yCol];
+      const numVal = typeof rawVal === "number" ? rawVal : parseFloat(String(rawVal).replace(/[^0-9.-]+/g, ""));
+      const finalVal = isNaN(numVal) ? 0 : numVal;
+      const labelVal = row[xCol] !== undefined && row[xCol] !== null ? String(row[xCol]) : `#${idx + 1}`;
+      return { ...row, _x: labelVal, _y: finalVal };
+    })
     : [];
 
   return (
@@ -234,16 +234,15 @@ function QueryResultSection({
                 {showChart ? (isRtl ? "إخفاء" : "Hide") : (isRtl ? "عرض" : "Show")}
               </button>
             </div>
-            
+
             <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
               {/* Chart Type Selector */}
               <div className="flex items-center gap-1 bg-muted/40 p-1 rounded-lg border border-border/40">
                 <button
                   type="button"
                   onClick={() => setActiveChartType("bar")}
-                  className={`px-2 py-1 rounded text-[11px] font-sans transition-colors flex items-center gap-1 ${
-                    activeChartType === "bar" ? "bg-primary text-primary-foreground shadow font-medium" : "text-muted-foreground hover:text-foreground"
-                  }`}
+                  className={`px-2 py-1 rounded text-[11px] font-sans transition-colors flex items-center gap-1 ${activeChartType === "bar" ? "bg-primary text-primary-foreground shadow font-medium" : "text-muted-foreground hover:text-foreground"
+                    }`}
                   title={isRtl ? "أعمدة بيانية" : "Bar Chart"}
                 >
                   <BarChart3 className="h-3 w-3 shrink-0" />
@@ -252,9 +251,8 @@ function QueryResultSection({
                 <button
                   type="button"
                   onClick={() => setActiveChartType("line")}
-                  className={`px-2 py-1 rounded text-[11px] font-sans transition-colors flex items-center gap-1 ${
-                    activeChartType === "line" ? "bg-primary text-primary-foreground shadow font-medium" : "text-muted-foreground hover:text-foreground"
-                  }`}
+                  className={`px-2 py-1 rounded text-[11px] font-sans transition-colors flex items-center gap-1 ${activeChartType === "line" ? "bg-primary text-primary-foreground shadow font-medium" : "text-muted-foreground hover:text-foreground"
+                    }`}
                   title={isRtl ? "منحنى الاتجاه" : "Line Chart"}
                 >
                   <LineIcon className="h-3 w-3 shrink-0" />
@@ -263,9 +261,8 @@ function QueryResultSection({
                 <button
                   type="button"
                   onClick={() => setActiveChartType("pie")}
-                  className={`px-2 py-1 rounded text-[11px] font-sans transition-colors flex items-center gap-1 ${
-                    activeChartType === "pie" ? "bg-primary text-primary-foreground shadow font-medium" : "text-muted-foreground hover:text-foreground"
-                  }`}
+                  className={`px-2 py-1 rounded text-[11px] font-sans transition-colors flex items-center gap-1 ${activeChartType === "pie" ? "bg-primary text-primary-foreground shadow font-medium" : "text-muted-foreground hover:text-foreground"
+                    }`}
                   title={isRtl ? "توزيع نسبي" : "Pie Chart"}
                 >
                   <PieIcon className="h-3 w-3 shrink-0" />
@@ -566,8 +563,8 @@ function ChatContent() {
     },
     onSuccess: (data, messageText) => {
       const qLang: "ar" | "en" = isArabicText(messageText) ? "ar" : "en";
-      const fallbackText = qLang === "ar" 
-        ? (data.success ? "تم تحليل البيانات بنجاح." : "فشل تنفيذ استعلام SQL.") 
+      const fallbackText = qLang === "ar"
+        ? (data.success ? "تم تحليل البيانات بنجاح." : "فشل تنفيذ استعلام SQL.")
         : (data.success ? "Analysis complete." : "SQL query execution failed.");
 
       const assistantMsg: MessageItem = {
@@ -587,7 +584,7 @@ function ChatContent() {
       const isTimeout = rawError.includes("timeout") || rawError.includes("Network Error") || rawError.includes("ERR_NETWORK");
       let text = "";
       if (isTimeout) {
-        text = isAr 
+        text = isAr
           ? "استغرقت عملية تحليل البيانات وكتابة التقرير وقتًا أطول من المتوقع (Timeout). يُرجى إعادة محاولة إرسال السؤال مرة أخرى."
           : "Data analysis and report generation took longer than expected (Timeout). Please try submitting your question again.";
       } else {
@@ -827,7 +824,7 @@ function ChatContent() {
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
             dir={isInputRtl ? "rtl" : "ltr"}
-            placeholder="اسأل سؤالاً باللغة العربية أو الإنجليزية..."
+            placeholder={isInputRtl ? "اسأل سؤالاً" : "Ask a question"}
             className={cn(
               "flex-1 h-11 text-sm bg-card shadow-sm transition-all",
               isInputRtl ? "text-right font-sans" : "text-left"

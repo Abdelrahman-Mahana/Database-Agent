@@ -18,5 +18,15 @@
     "masked_url": "postgresql://postgres:\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022@localhost:5433/Agial",
     "created_at": 1785706268.7216048,
     "updated_at": 1785706268.721605
+  },
+  "6a08018f3e9b": {
+    "connection_id": "6a08018f3e9b",
+    "db_type": "POSTGRESQL",
+    "display_name": "ai_assistant",
+    "database_name": "Ai_assistant",
+    "encrypted_credentials": "gAAAAABqb8R-TGrD93dS6gx7yaoCsHUJ87HrTmuD-KcSPIUqw_2jiilefH_veac_UCkaDmmI3So4QMiXa6djVNnUH0FdrNsvBnjSTTRNCvjp41yoDxCquQ3SiWtP52OnQecol59uptGINgPIsV1s-PTY3U0ABb1FfQ==",
+    "masked_url": "postgresql://postgres:\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022@localhost:5433/ai_assistant",
+    "created_at": 1785709694.5137846,
+    "updated_at": 1785709694.513785
   }
 }
