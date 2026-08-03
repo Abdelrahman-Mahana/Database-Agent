@@ -24,6 +24,8 @@ class ChatResponse(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    quality_score: float | None = None
+    confidence_score: float | None = None
 
 
 class HealthResponse(BaseModel):

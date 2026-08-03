@@ -1,515 +1,288 @@
-# 📊 AI Database Analyst Agent
+# 📊 Database Agent AI
 
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.31-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)](https://streamlit.io/)
-[![LangChain](https://img.shields.io/badge/LangChain-0.2.0-1C3C3C?style=for-the-badge&logo=langchain&logoColor=white)](https://www.langchain.com/)
+[![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=next.js&logoColor=white)](https://nextjs.org/)
+[![LangChain](https://img.shields.io/badge/LangChain-0.2-1C3C3C?style=for-the-badge&logo=langchain&logoColor=white)](https://www.langchain.com/)
 [![Docker](https://img.shields.io/badge/Docker-Enabled-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
 
-An autonomous, enterprise-grade **AI Database Analyst Agent** designed to bridge the gap between non-technical stakeholders and complex relational databases. By converting natural-language queries into safe, multi-step executable SQL, the system automatically inspects database schemas, validates query safety at the AST level, executes analytics across multiple database engines (SQLite, PostgreSQL, MySQL/MariaDB), and generates fact-grounded executive reports accompanied by interactive visualizations.
+An AI-powered **database analyst agent** that turns natural-language questions (English & Arabic) into safe, validated SQL, runs it, and returns an executive-style written report with charts — instead of a raw result grid. It inspects the target schema on the fly, so it isn't hard-coded to one database: point it at a SQLite, PostgreSQL, or MySQL/MariaDB database and start asking questions.
 
-Powered by multi-tier LLM orchestrations (**OpenRouter**, **Groq**, or local **Ollama**), built on **FastAPI** and **LangChain**, and presented through an executive-styled **Streamlit** dashboard featuring dual English and Arabic (RTL) typography.
-
-![Database Analyst Agent Dashboard](assets/dashboard.png)
+The system is split into a **FastAPI + LangChain backend** (the agent, SQL safety pipeline, analytics, and 20+ REST modules) and a **Next.js dashboard** (chat, schema explorer, connection manager, query execution & analytics views).
 
 ---
 
 ## Table of Contents
 
 - [Key Features](#key-features)
-- [System Architecture](#system-architecture)
-- [Project Directory Structure](#project-directory-structure)
+- [How a Question Becomes an Answer](#how-a-question-becomes-an-answer)
+- [Project Structure](#project-structure)
 - [Technology Stack](#technology-stack)
-- [Environment Configuration](#environment-configuration)
 - [Getting Started](#getting-started)
-  - [Prerequisites](#prerequisites)
-  - [Option 1: Docker Compose (Recommended)](#option-1-docker-compose-recommended)
-  - [Option 2: Local Development (uv / pip)](#option-2-local-development-uv--pip)
-- [Database Connection & Management](#database-connection--management)
-- [REST API Reference](#rest-api-reference)
-- [Testing & Quality Assurance](#testing--quality-assurance)
+  - [Option 1: Docker Compose (recommended)](#option-1-docker-compose-recommended)
+  - [Option 2: Run locally](#option-2-run-locally)
+- [Configuration](#configuration)
+- [Connecting a Database](#connecting-a-database)
+- [REST API Overview](#rest-api-overview)
+- [Testing](#testing)
 - [Deployment](#deployment)
+- [Security Notes](#security-notes)
 - [License](#license)
 
 ---
 
 ## Key Features
 
-### 💬 Conversational Intelligence & Memory
-- **Session-Based Sliding Window Memory**: Retains multi-turn conversation context (`MEMORY_WINDOW_SIZE`, default 5 turns) with automatic TTL eviction (`MEMORY_TTL_SECONDS`). Resolves ambiguous follow-up requests like *"break that down by month"* or *"filter out the US customers"* seamlessly.
-- **Context-Aware Intent Routing**: Employs a fast-model intent classifier that evaluates user queries against current conversation history, categorizing input into `database`, `schema`, or `off_topic`.
-- **Guided Off-Topic Refusal**: Gracefully handles out-of-scope prompts by analyzing actual database tables and providing helpful recommendations of questions the agent *can* answer.
-- **Session Lifecycle Management**: Session history can be dynamically cleared on demand via `DELETE /chat/history?session_id=<id>`.
+**Conversational agent**
+- Multi-turn memory per session (sliding window + TTL), so follow-ups like *"break that down by month"* resolve against the previous turn.
+- Bilingual (Arabic/English) intent classification that routes questions to `database`, `schema`, or `off_topic` handling, with a graceful refusal for out-of-scope questions.
+- Multi-step **plan-and-execute** decomposition for compound questions (e.g. "show monthly sales of the best-selling artist"), executing sub-queries and synthesizing one consolidated report.
 
-### 🧩 Advanced Agent Architecture
-- **Offline Schema Exploration Routing**: Intercepts schema metadata queries (e.g., *"list all tables"*, *"describe table Customers"*, *"what are foreign keys for Invoices"*) and answers instantly from a local cache without invoking LLM tokens.
-- **Dynamic Schema Grounding Engine**: Filters and extracts minimal relevant table sub-schemas (`SchemaGroundingEngine`) using a `SemanticQueryParser` to prevent context window bloat and reduce token usage. For schemas with 30+ tables where no table can be confidently matched to the question, falls back to the most FK-central tables (by join-graph degree) instead of dumping the entire schema into the prompt.
-- **Database-Agnostic (Zero-Shot) SQL Generation**: SQL is generated with no hardcoded example queries tied to any specific schema - relying instead on a strong schema description plus real sample column values and date ranges (see below), so accuracy doesn't depend on how closely a new database resembles the original demo schema.
-- **Schema-Grounded Value & Date Awareness**: Text columns are introspected for a few real sample values (e.g. `status (VARCHAR) -- Sample values: 'A', 'I'`), and date/datetime columns for their actual min/max range (e.g. `OrderDate (DATETIME) -- Data range: 2012-07-10 to 2023-10-28`) - so the model writes `WHERE status = 'A'` and resolves relative time periods against data that's actually there, instead of guessing.
-- **Deterministic Temporal Grounding**: When a question references a bare month with no year (in Arabic or English - "يناير", "January"), the system deterministically resolves it against the schema's actual date range and pins the year in the prompt, rather than relying on the LLM to notice a hint or falling back on assumptions from its training data about what the schema "usually" looks like.
-- **Bilingual Complexity Classification**: Recognizes comparison/trend/root-cause/multi-step question patterns in both Arabic and English, so compound analytical questions get routed to the Planner regardless of the language they're asked in.
-- **Multi-Step Plan-and-Execute Decomposition**: Decomposes complex compound analytical questions (e.g., *"Show the monthly sales of the best-selling artist"*) into ordered, dependent sub-steps (`Planner`), executing intermediate queries and synthesizing a consolidated final report.
-- **Off-Schema Sentinel (`UNANSWERABLE`)**: Emits a `UNANSWERABLE: <reason>` sentinel when requested data does not exist in the active schema, surfacing an honest, LLM-humanized explanation (in the user's own language) rather than hallucinating SQL or returning a flat English error string.
-- **Self-Consistency SQL Voting**: Generates multiple SQL candidate queries in parallel (`SQL_CANDIDATES`, default 3) and applies normalized majority voting to select the most reliable execution path. Every candidate is dialect-transpiled and LIMIT-enforced *before* its validation dry-run, not just the final winner.
-- **Bounded Auto-Repair & Fuzzy Suggestions**: Automatically captures database execution errors and prompts the LLM to fix syntax up to `MAX_FIX_ATTEMPTS` (default 2). If errors persist, it performs Levenshtein fuzzy matching to suggest closest valid table/column names.
+**Schema-aware, database-agnostic SQL generation**
+- No hard-coded example queries for any particular schema — SQL generation is grounded in the *actual* introspected schema, sample column values, and real min/max date ranges of the connected database.
+- Self-consistency SQL voting (multiple candidates, majority vote) and bounded auto-repair on execution errors, with fuzzy table/column-name suggestions.
+- An `UNANSWERABLE` sentinel path for questions the active schema genuinely can't answer, instead of hallucinated SQL.
 
-### 🗣️ Human-Voiced, Cost-Aware Reporting
-- **Analyst-Voice Report Writing**: Reports read like a senior analyst's spoken summary (direct answer first, then the 2-4 findings that matter) rather than a mechanical dump of dataset statistics, with an explicit rule against relabeling entities found in the results (e.g. never turning "February" into "March" mid-report).
-- **Language-Safe Verification**: The optional fact-checking/citation pass is instructed to preserve the draft's language, and a deterministic script-detection safety net discards the verification pass (falling back to the draft) if it ever silently switches scripts (e.g. an Arabic draft coming back in English).
-- **Cost-Gated Verification**: The extra verification LLM call only runs for comparison/trend/root-cause/multi-step questions - the analysis types where synthesizing across multiple figures creates real risk of drift. Simple lookup/count/aggregation/ranking questions skip it, roughly halving report-generation LLM cost for the majority of everyday questions.
-- **Humanized No-Answer Responses**: Unanswerable questions, empty result sets, and post-repair execution failures are explained by a fast LLM call in the user's own language and tone, with a plain-text fallback if that call itself fails - never a flat hardcoded English string.
+**Safety-first execution**
+- AST-level SQL validation (`sqlglot`) enforcing SELECT-only queries, dialect transpilation, and automatic `LIMIT` enforcement.
+- Cost guard against unbounded full-table scans, and optional data masking for sensitive columns.
+- Optional per-minute rate limiting.
 
-### 🛡️ Zero-Trust SQL Engine & Safety
-- **AST Safety Parsing (`sqlglot`)**: Validates every generated query against an Abstract Syntax Tree (AST) whitelist/blacklist. Strictly enforces read-only operations (`SELECT`, `WITH`/CTEs, window functions) while blocking destructive operations (`DROP`, `DELETE`, `UPDATE`, `INSERT`, `ALTER`, `TRUNCATE`, `CREATE`, etc.).
-- **Automatic LIMIT Enforcement**: Any generated `SELECT`/`UNION` query with no explicit `LIMIT` gets one appended (default 500 rows) during dialect transpilation - applied before validation dry-runs, the real execution, and any auto-repaired query - so an unbounded query against a large table can't silently pull millions of rows.
-- **Multi-Dialect Transpilation**: Normalizes generated SQL to match the target database dialect (`sqlite`, `postgres`, `mysql`) based on the active `DATABASE_URL`, with identifiers safely quoted per-dialect (so table/column names with spaces or reserved words - e.g. Northwind's `Order Details` - work correctly).
-- **Multi-Level Caching**: Implements multi-tier caching for generated SQL queries and database result sets using in-memory TTL caches or Redis (`REDIS_URL`).
+**Reporting & analytics**
+- Deterministic statistical analyzers (aggregations, outliers, distributions, correlations) feed an analyst-voice report writer — a direct answer followed by the 2–4 findings that matter, not a raw data dump.
+- Automatic chart-type suggestion for the result set.
+- A self-scoring **evaluation framework** (`app/evaluation`) grades every `/chat` request for SQL success, repair attempts, and estimated latency/cost, producing a `quality_score` / `confidence_score` per request — queryable via `GET /evaluation/stats` and `GET /evaluation/history` (see [Recently Connected](#recently-connected-the-evaluation-framework) below).
 
-### 📈 Fact-Grounded Reports & Data Visualization
-- **Fact Verification & Row Citations**: A two-stage report generation pipeline cross-references written summaries against raw query result sets, tagging claims with precise row citations (e.g., `[Row 1]`).
-- **Deterministic Analytics Engine**: Computes statistical aggregations, outlier detection, and metric trends (`AnalyticsEngine`, `InsightEngine`) to ground reports in verified empirical math.
-- **Interactive Plotly Visualizations**: Automatically detects optimal chart types (Bar, Line, Scatter, Pie) and renders interactive Plotly figures alongside dynamic KPI metric cards.
-- **Bilingual & Auto-RTL UI**: Native support for English and Arabic typography with automatic Right-to-Left (RTL) layout switching in the Streamlit frontend.
+**Multi-database connectivity**
+- Connect to SQLite, PostgreSQL, or MySQL/MariaDB by URL or by uploading a `.db`/`.sqlite` file, with connection profiles encrypted at rest and hot-swappable without restarting the API.
 
 ---
 
-## System Architecture
-
-### Component Dataflow
-
-```mermaid
-flowchart TD
-    User([User / Browser]) <--> UI[Streamlit Frontend Dashboard\n:8501]
-    UI <--> API[FastAPI Backend REST API\n:8000]
-
-    subgraph Backend_App [FastAPI Application Core]
-        API --> IntentClass[Intent Classifier]
-        API --> SchemaExplorer[Offline Schema Explorer]
-        API --> Agent[Analyst Agent Core]
-
-        subgraph Agent_Pipeline [Agent Pipeline]
-            Agent --> Grounding[Schema Grounding Engine]
-            Grounding --> Planner[Plan & Execute Planner]
-            Planner --> SQLGen[SQL Candidate Generator]
-            SQLGen --> Validator[Zero-Trust Safety Engine\nsqlglot AST Check]
-            Validator --> DBExec[SQL Execution & Auto-Repair]
-            DBExec --> Analytics[Analytics & Insight Engine]
-            Analytics --> ReportGen[Fact-Grounded Report Service]
-        end
-
-        Agent <--> Memory[Session Memory Manager\nSliding Window + TTL]
-        Agent <--> Cache[Caching Layer\nIn-Memory / Redis]
-    end
-
-    subgraph Storage_LLM [Database & LLM Providers]
-        DBExec <--> DB[(Database Engine\nSQLite / PostgreSQL / MySQL)]
-        SQLGen <--> LLM[LLM Providers\nOpenRouter / Groq / Ollama]
-        ReportGen <--> LLM
-    end
-```
-
-### Text Architecture Overview
+## How a Question Becomes an Answer
 
 ```
-                      [ Streamlit Dashboard ] (Port 8501)
-                                │
-          (Interactive Chat, KPI Cards, Plotly Charts, Schema Explorer, DB Switcher)
-                                │
-                                ▼
-                       [ FastAPI Backend ] (Port 8000)
-                                │
-        ┌───────────────────────┼───────────────────────┐
-        ▼                       ▼                       ▼
- [ Analyst Agent ]     [ Session Memory ]       [ Safety Validator ]
- (Intent Router,       (Sliding Window,         (DML Whitelist Scan,
-  Schema Grounding,     Per-Session TTL,         SELECT-only AST Check,
-  Plan & Execute,       History Injection)       Dialect Transpiler)
-  Self-Consistency,            │                        │
-  Fact Grounding)              │                        │
-        │                      │                        │
-        └──────────────────────┼────────────────────────┘
-                               │
-                               ▼
-         ┌─────────────────────┴─────────────────────┐
-         ▼                                           ▼
-  [ Database Layer ]                         [ LLM Providers ]
- (SQLite / PostgreSQL / MySQL)             (OpenRouter / Groq / Ollama)
-              ▲
-              │
-      [ Caching Layer ]
-     (In-Memory or Redis)
+User question (AR/EN)
+        │
+        ▼
+Intent Classification ──► off_topic → guided refusal
+        │ database / schema
+        ▼
+Schema Grounding  (prune full schema to the relevant tables/columns)
+        │
+        ▼
+Simple? ── Planner (multi-step decomposition for compound questions)
+        │
+        ▼
+SQL Generation (self-consistency candidates) ──► AST Validation ──► Execute
+        │                                              │
+        │                                     on failure: Auto-Repair (bounded)
+        ▼
+Analytics Engine (stats, outliers) + Chart Suggestion
+        │
+        ▼
+Report Synthesis (analyst-voice) ──► optional Verification pass
+        │
+        ▼
+Evaluation Framework scores the request (quality / confidence)
+        │
+        ▼
+ChatResponse → frontend
 ```
 
 ---
 
-## Project Directory Structure
+## Recently Connected: the Evaluation Framework
 
-```directory
-Database-Analyst-Agent/
-├── .env                       # Local environment variables (git-ignored)
-├── .env.example               # Template environment configuration file
-├── docker-compose.yml         # Development docker-compose setup (live mounts)
-├── docker-compose.prod.yml    # Production docker-compose setup (standalone images)
-├── README.md                  # Project documentation
-├── assets/
-│   └── dashboard.png          # System UI dashboard preview screenshot
-├── backend/
+While reviewing the codebase we found a complete, well-tested **AI Evaluation Framework** (`backend/app/evaluation/`) — metrics collection, confidence/quality scoring, and telemetry — that existed in the code but was never wired into the app or exposed via the API. It's now connected:
+
+- Every `POST /chat` call is scored automatically (best-effort, never blocks the response) and the score is attached to the response as `quality_score` / `confidence_score`.
+- New endpoints expose the results: `GET /evaluation/history`, `GET /evaluation/stats`, `DELETE /evaluation/history`.
+
+See [`app/api/evaluation.py`](backend/app/api/evaluation.py) and the updated [`app/api/chat.py`](backend/app/api/chat.py).
+
+---
+
+## Project Structure
+
+```
+Database-Agent-AI/
+├── docker-compose.yml           # Dev stack (backend + frontend, live-mounted)
+├── docker-compose.prod.yml      # Production stack (standalone images)
+├── .gitignore
+├── assets/                      # README screenshots (add dashboard.png here)
+│
+├── backend/                     # FastAPI + LangChain service
 │   ├── app/
-│   │   ├── agents/            # Core AI Agent orchestration sub-modules
-│   │   │   ├── analyst_agent.py      # Master pipeline executor
-│   │   │   ├── intent_classifier.py  # Intent routing & off-topic handling
-│   │   │   ├── planner.py            # Plan-and-execute decomposition
-│   │   │   ├── schema_explorer.py    # Zero-LLM offline metadata resolver
-│   │   │   └── sql_generator.py      # Self-consistency SQL generation & repair
-│   │   ├── analytics/         # Deterministic statistical engines
-│   │   │   ├── engine.py             # Row aggregations, summary stats
-│   │   │   ├── insight_engine.py     # Outlier detection, metric highlights
-│   │   │   ├── analyzers/            # Per-metric statistical analyzers
-│   │   │   └── insights/             # Insight generation strategies
-│   │   ├── api/               # FastAPI REST endpoint routes
-│   │   │   ├── chat.py               # POST /chat, DELETE /chat/history
-│   │   │   ├── connect.py            # Database hot-swapping & file uploads
-│   │   │   ├── health.py             # GET /health
-│   │   │   └── schema.py             # GET /schema
-│   │   ├── core/              # System settings & logging setup
-│   │   │   ├── config.py             # Environment-backed settings
-│   │   │   └── logging_config.py     # Loguru JSON structured logger
-│   │   ├── database/          # SQLAlchemy engine & session pool
-│   │   │   ├── db.py                 # Dynamic database connection manager
-│   │   │   ├── models.py             # Internal database ORM models
-│   │   │   └── seed.py               # Database seeder utility
-│   │   ├── evaluation/        # Benchmarking & scoring utilities
-│   │   ├── llm/                # Provider client wrappers & prompt templates
-│   │   │   ├── model.py              # OpenRouter, Groq, Ollama client factories
-│   │   │   └── prompts.py            # Zero-shot SQL, report, and no-answer templates
-│   │   ├── schema_grounding/   # Question-scoped schema pruning
-│   │   │   ├── grounding_engine.py   # SchemaGroundingEngine: seed-table + FK-graph resolution
-│   │   │   ├── relationship_graph.py # FK join graph + centrality ranking (large-schema fallback)
-│   │   │   ├── schema_pruner.py      # Renders the pruned schema subset to prompt text
-│   │   │   └── models.py             # GroundedSchema result model
-│   │   ├── schemas/            # Pydantic request/response models
-│   │   │   └── chat.py               # API schemas for requests & responses
-│   │   ├── semantic/           # Deterministic question understanding
-│   │   │   ├── parser.py             # SemanticQueryParser: entities/metrics/analysis type
-│   │   │   └── models.py             # QueryUnderstanding result model
-│   │   ├── services/           # Core domain business logic
-│   │   │   ├── memory.py             # Conversation memory manager & TTL
-│   │   │   ├── report_service.py     # Fact-grounded, human-voiced report synthesis & charts
-│   │   │   └── sql_service.py        # Schema introspection (incl. sample values/date ranges) & SQL executor
-│   │   ├── sql/                 # SQL prompt building, safety validation & repair
-│   │   │   ├── prompt_builder.py     # Builds generation input incl. temporal grounding hints
-│   │   │   ├── validator.py          # SELECT-only safety check + dialect transpile + LIMIT enforcement
-│   │   │   ├── repair_engine.py      # Fuzzy table/column suggestions on execution failure
-│   │   │   ├── grounding_engine.py   # UNANSWERABLE sentinel detection helper
-│   │   │   └── models.py             # ValidationResult / GroundingResult / ExecutionRepairResult
-│   │   ├── utils/               # Utilities for parsing, safety, and caching
-│   │   │   ├── cache.py              # In-memory / Redis cache manager
-│   │   │   ├── text_processor.py     # Bilingual (AR/EN) analysis-type classification, temporal hint resolution
-│   │   │   ├── validator.py          # AST sqlglot safety validator, dialect transpiler, LIMIT enforcement
-│   │   │   └── token_tracker.py      # LLM token usage accounting
-│   │   └── main.py              # FastAPI entry point, CORS & middleware
-│   ├── scripts/                 # Standalone dev utilities (not part of the pytest suite)
-│   │   ├── check_db_connection.py    # Print configured DB + verify it's reachable
-│   │   └── manual_smoke_test.py      # Run a handful of representative questions end-to-end
-│   ├── tests/                 # Automated Pytest suite
-│   │   ├── conftest.py               # Test fixtures (API client, mock LLM, DB)
-│   │   ├── test_agent.py             # End-to-end agent logic tests
-│   │   ├── test_api.py               # REST API endpoint tests
-│   │   ├── test_memory.py            # Memory TTL & sliding window tests
-│   │   ├── test_planner.py           # Plan-and-execute decomposition tests
-│   │   ├── test_schema_grounding.py  # Schema grounding/pruning tests
-│   │   ├── test_semantic_parser.py   # SemanticQueryParser tests
-│   │   ├── test_sql_package.py       # SQL prompt/validation/repair package tests
-│   │   └── test_validation.py        # AST SQL safety & transpilation tests
-│   ├── chinook.db             # Default sample SQLite database (Music Store)
-│   ├── Northwind.db           # Preset sample SQLite database (Enterprise ERP)
-│   ├── Dockerfile             # Backend production Docker container recipe
-│   ├── railway.json           # Railway deployment specification
-│   └── requirements.txt       # Backend Python dependencies
-└── frontend/
-    ├── app.py                 # Streamlit UI dashboard application
-    ├── Dockerfile             # Frontend production Docker container recipe
-    ├── railway.json           # Railway deployment specification
-    └── requirements.txt       # Frontend Python dependencies
+│   │   ├── main.py                  # FastAPI entry point, DI container, middleware
+│   │   ├── agents/                  # AnalystAgent pipeline: intent → plan → SQL → repair
+│   │   ├── ai_reasoning/            # LLM reasoning/explanation/confidence engines
+│   │   ├── analytics/               # Deterministic stats & insight engines
+│   │   ├── api/                     # One router module per REST resource (20+)
+│   │   ├── config/ & core/          # Settings, DI container, structured logging
+│   │   ├── context_builder/         # Prompt-context assembly & ranking
+│   │   ├── conversation/            # Session memory service
+│   │   ├── database/                # SQLAlchemy engine/session, seed helpers
+│   │   ├── dialect/                 # Cross-dialect SQL transpilation
+│   │   ├── evaluation/              # Request scoring framework (see above)
+│   │   ├── execution/               # Safe query execution
+│   │   ├── llm/                     # Provider clients (OpenRouter/Groq/Ollama) & prompts
+│   │   ├── logical_query/           # Logical query IR
+│   │   ├── orchestrator/            # LangGraph-based orchestration (feature-flagged)
+│   │   ├── planning/                # Plan-and-execute decomposition
+│   │   ├── plugins/                 # Plugin discovery system
+│   │   ├── query_understanding/     # NL question parsing (entities/metrics/intent)
+│   │   ├── result_processing/       # Result shaping & chart suggestion
+│   │   ├── schema_catalog/          # Cached schema catalogs per connected DB
+│   │   ├── schema_grounding/        # Prunes full schema to question-relevant subset
+│   │   ├── schemas/                 # Pydantic request/response models
+│   │   ├── security/                # Cost guard & data masking
+│   │   ├── semantic/ & semantic_analysis/  # Deterministic question/column understanding
+│   │   ├── services/                # Domain services (memory, reports, SQL, onboarding)
+│   │   ├── sql/, sql_renderer/, sql_validation/  # SQL build → render → AST-validate pipeline
+│   │   ├── telemetry/                # Structured logging setup
+│   │   └── utils/                    # Caching, cost routing, token tracking, validators
+│   ├── data/schema_catalog/         # Cached per-database schema catalogs (generated)
+│   ├── eval/                        # Offline golden-dataset evaluation scripts
+│   ├── scripts/                     # Manual dev utilities (not part of pytest)
+│   ├── tests/                       # Pytest suite
+│   ├── chinook.db                   # Packaged demo SQLite database (Chinook music store)
+│   ├── .env.example                 # Copy to backend/.env and fill in
+│   ├── Dockerfile / docker-compose.yml / railway.json
+│   └── requirements.txt
+│
+└── frontend/                    # Next.js dashboard
+    ├── src/
+    │   ├── app/                     # Routes: chat, connect, explorer, execution, analytics, history, settings
+    │   ├── components/              # UI components (schema explorer, layout, shared UI)
+    │   ├── services/, store/, lib/, providers/, types/
+    ├── Dockerfile / railway.json
+    └── package.json
 ```
 
 ---
 
 ## Technology Stack
 
-| Layer | Technologies & Libraries |
-| :--- | :--- |
-| **Backend Core** | Python 3.12, FastAPI, Uvicorn, Pydantic v2, Pydantic-Settings |
-| **Data & ORM** | SQLAlchemy 2.0, PyMySQL, Psycopg2-binary, SQLite |
-| **Agent Orchestration** | LangChain, LangChain-Core, LangChain-Community, LangChain-OpenAI, LangChain-Ollama |
-| **SQL Safety & AST** | `sqlglot` (AST parsing & dialect transpilation), `sqlparse` |
-| **LLM Integrations** | OpenRouter API, Groq Cloud API, Ollama (Local models: Gemma 3, Llama 3.3) |
-| **Frontend Dashboard** | Streamlit, Plotly Express, Pandas, HTML5 / CSS3 (Vanilla design system) |
-| **Logging & Cache** | Loguru (Structured JSON logging), Cachetools, Redis (Optional) |
-| **Testing & Tools** | Pytest, Pytest-Asyncio, HTTPX, `uv` / `pip` |
-| **Containerization** | Docker, Docker Compose, Railway |
-
----
-
-## Environment Configuration
-
-Copy `.env.example` to `.env` in the root workspace directory before launching the application:
-
-```bash
-cp .env.example .env
-```
-
-### Supported Configuration Variables
-
-| Variable | Type | Default Value | Description |
-| :--- | :--- | :--- | :--- |
-| **`LLM_PROVIDER`** | *string* | `openrouter` | Active provider: `openrouter`, `groq`, or `ollama`. |
-| **`OPENROUTER_API_KEY`** | *string* | `""` | OpenRouter API Key (required when `LLM_PROVIDER=openrouter`). |
-| **`OPENROUTER_MODEL`** | *string* | `google/gemini-2.5-flash` | Primary model for SQL generation on OpenRouter. |
-| **`OPENROUTER_FAST_MODEL`** | *string* | `google/gemini-2.5-flash` | Fast model for intent, planning, and report synthesis. |
-| **`OPENROUTER_BASE_URL`** | *string* | `https://openrouter.ai/api/v1` | Base API URL for OpenRouter endpoint. |
-| **`GROQ_API_KEY`** | *string* | `""` | Groq Cloud API Key (required when `LLM_PROVIDER=groq`). |
-| **`GROQ_MODEL`** | *string* | `llama-3.3-70b-versatile` | Primary model for Groq provider. |
-| **`GROQ_FAST_MODEL`** | *string* | `llama-3.1-8b-instant` | Fast model for Groq provider. |
-| **`OLLAMA_BASE_URL`** | *string* | `http://localhost:11434` | Base URL for local Ollama service. |
-| **`OLLAMA_MODEL`** | *string* | `gemma3:4b` | Default Ollama model name. |
-| **`DATABASE_URL`** | *string* | `sqlite:///./chinook.db` | SQLAlchemy connection string (SQLite, PostgreSQL, MySQL). |
-| **`ENABLE_SELF_CONSISTENCY`**| *boolean*| `false` | Enable parallel multi-query SQL voting. |
-| **`SQL_CANDIDATES`** | *integer*| `3` | Number of candidate queries generated during self-consistency. |
-| **`ENABLE_REPORT_VERIFICATION`**| *boolean*| `false` | Enable two-stage LLM verification of final report text. |
-| **`ENABLE_CHART_SUGGESTION`**| *boolean*| `true` | Enable LLM chart visualization recommendations. |
-| **`REDIS_URL`** | *string* | `None` | (Optional) Redis connection URL for distributed caching. |
-| **`SQL_CACHE_TTL`** | *integer* | `3600` | Expiration time (seconds) for cached SQL queries. |
-| **`RESULTS_CACHE_TTL`** | *integer* | `300` | Expiration time (seconds) for cached query results. |
-| **`MEMORY_WINDOW_SIZE`** | *integer*| `5` | Sliding window count of conversation turns retained per session. |
-| **`MEMORY_TTL_SECONDS`** | *integer*| `3600` | Idle session memory eviction timeout (seconds). |
-| **`DB_POOL_SIZE`** | *integer* | `20` | Database connection pool size (PostgreSQL/MySQL). |
-| **`DB_MAX_OVERFLOW`** | *integer* | `0` | Database connection pool max overflow limit. |
+| Layer | Technology |
+|---|---|
+| Backend framework | FastAPI, dependency-injector (DI container), Uvicorn |
+| Agent / LLM orchestration | LangChain, LangGraph (optional graph orchestrator) |
+| LLM providers | OpenRouter, Groq, local Ollama |
+| SQL safety | sqlglot (AST validation & dialect transpilation), sqlparse |
+| Data layer | SQLAlchemy 2.x — SQLite, PostgreSQL (`psycopg2`), MySQL/MariaDB (`pymysql`) |
+| Logging | structlog, loguru |
+| Testing | pytest, pytest-asyncio |
+| Frontend | Next.js 16, React, TypeScript, Tailwind, shadcn/ui, TanStack Query, Zustand, Recharts, Framer Motion |
+| Packaging / deploy | Docker, Docker Compose, Railway |
 
 ---
 
 ## Getting Started
 
 ### Prerequisites
-- **Python 3.12+** or **Docker & Docker Compose** installed.
-- API key for **OpenRouter** or **Groq**, or a running local instance of **Ollama**.
+- Python 3.12+ and `pip` (or `uv`)
+- Node.js 18+ and `npm`
+- Docker & Docker Compose (optional, recommended)
+- An API key for at least one LLM provider (OpenRouter or Groq), or a local Ollama install
 
----
-
-### Option 1: Docker Compose (Recommended)
-
-To spin up both backend and frontend services inside containers:
-
-1. **Clone the Repository**:
-   ```bash
-   git clone https://github.com/Abdelrahman-Mahana/Database-Analyst-Agent.git
-   cd Database-Analyst-Agent
-   ```
-
-2. **Setup Environment**:
-   ```bash
-   cp .env.example .env
-   # Open .env and insert your OPENROUTER_API_KEY or GROQ_API_KEY
-   ```
-
-3. **Launch Containers**:
-   - **Development Mode** (with live volume reloads):
-     ```bash
-     docker-compose up --build
-     ```
-   - **Production Mode** (standalone build):
-     ```bash
-     docker-compose -f docker-compose.prod.yml up --build -d
-     ```
-
-4. **Access Applications**:
-   - **Frontend UI Dashboard**: [`http://localhost:8501`](http://localhost:8501)
-   - **Backend REST API**: [`http://localhost:8000`](http://localhost:8000)
-   - **Interactive API Docs (Swagger)**: [`http://localhost:8000/docs`](http://localhost:8000/docs)
-
----
-
-### Option 2: Local Development (uv / pip)
-
-We support package management using **`uv`** (fast Rust-based Python package manager) or standard **`pip`**.
-
-#### 1. Start the Backend API
+### Option 1: Docker Compose (recommended)
 
 ```bash
-cd backend
+cp backend/.env.example backend/.env
+# edit backend/.env and add your OPENROUTER_API_KEY (or configure Groq/Ollama)
 
-# Create & activate virtual environment
-uv venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install dependencies
-uv pip install -r requirements.txt
-
-# Start Uvicorn development server
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+docker compose up --build
 ```
 
-#### 2. Start the Frontend Dashboard
+- Backend: http://localhost:8000 (docs at `/docs`)
+- Frontend: http://localhost:3000
 
-Open a separate terminal window:
+### Option 2: Run locally
 
+**Backend**
+```bash
+cd backend
+cp .env.example .env        # then edit .env
+pip install -r requirements.txt
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+(or, if you use `uv`: `make install && make run`, see `backend/Makefile`.)
+
+**Frontend**
 ```bash
 cd frontend
-
-# Create & activate virtual environment
-uv venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install dependencies
-uv pip install -r requirements.txt
-
-# Launch Streamlit server
-python -m streamlit run app.py
+npm install
+NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
 ```
 
----
-
-## Database Connection & Management
-
-The application features dynamic database switching without restarting the backend:
-
-1. **Local SQLite Presets**:
-   - **Chinook**: Sample digital music store database (tracks, albums, invoices, customers).
-   - **Northwind**: Classic ERP enterprise database (orders, products, suppliers, employees).
-
-2. **Custom SQLite File Upload**:
-   - Upload any `.db` or `.sqlite` file directly through the UI sidebar or `POST /connect/upload` endpoint.
-
-3. **Remote Database Connection Strings**:
-   - Pass any standard SQLAlchemy database URI (PostgreSQL, MySQL, MariaDB, etc.) via the UI or `POST /connect/url`.
-   - *Example PostgreSQL URL*: `postgresql://user:password@localhost:5432/analytics_db`
+The backend ships with `backend/chinook.db` (a sample music-store database) so you can start asking questions immediately with no setup.
 
 ---
 
-## REST API Reference
+## Configuration
 
-Full interactive documentation is available at `http://localhost:8000/docs`. Key API endpoints include:
+All configuration is environment-variable driven — see [`backend/.env.example`](backend/.env.example) for the full list with defaults, including:
 
-### `POST /chat`
-Submits a natural-language query to the Analyst Agent pipeline.
+- `DATABASE_URL`, `LLM_PROVIDER` (`openrouter` | `groq` | `ollama`) and per-provider keys/models
+- SQL generation knobs: `SQL_CANDIDATES`, `ENABLE_SELF_CONSISTENCY`, `ENABLE_REPORT_VERIFICATION`
+- Caching: `REDIS_URL` (optional; falls back to in-memory) and per-resource TTLs
+- Memory: `MEMORY_WINDOW_SIZE`, `MEMORY_TTL_SECONDS`
+- Safety: `ENABLE_COST_GUARD`, `COST_GUARD_MAX_UNFILTERED_ROWS`, `ENABLE_DATA_MASKING`, `ENABLE_RATE_LIMIT`
 
-**Request Body**:
-```json
-{
-  "message": "Who are the top 5 customers by total spending?",
-  "session_id": "session-uuid-1234"
-}
-```
+## Connecting a Database
 
-**Response Body (200 OK)**:
-```json
-{
-  "question": "Who are the top 5 customers by total spending?",
-  "sql": "SELECT c.FirstName, c.LastName, SUM(i.Total) AS TotalSpent FROM Customer c JOIN Invoice i ON c.CustomerId = i.CustomerId GROUP BY c.CustomerId ORDER BY TotalSpent DESC LIMIT 5;",
-  "results": [
-    { "FirstName": "Helena", "LastName": "Holý", "TotalSpent": 49.62 },
-    { "FirstName": "Richard", "LastName": "Cunningham", "TotalSpent": 47.62 },
-    { "FirstName": "Luis", "LastName": "Rojas", "TotalSpent": 46.62 },
-    { "FirstName": "Ladislav", "LastName": "Kovács", "TotalSpent": 45.62 },
-    { "FirstName": "Hugh", "LastName": "O'Reilly", "TotalSpent": 45.62 }
-  ],
-  "report": "## Executive Summary\nBased on invoice records, **Helena Holý** is the top spending customer with a total of **$49.62** [Row 1], closely followed by **Richard Cunningham** with **$47.62** [Row 2].",
-  "chart_suggestion": {
-    "should_chart": true,
-    "chart_type": "bar",
-    "x_column": "LastName",
-    "y_column": "TotalSpent"
-  },
-  "intent": "database",
-  "attempted_sql": null,
-  "error_type": null,
-  "suggestions": [],
-  "success": true,
-  "error": null
-}
-```
+Use the dashboard's **Connect** page, or call the API directly:
+
+- `POST /connect/url` — connect via a database URL (SQLite/PostgreSQL/MySQL)
+- `POST /connect/upload` — connect by uploading a `.db`/`.sqlite` file
+
+Connections are stored as encrypted profiles and can be switched without restarting the service.
 
 ---
 
-### `POST /connect/url`
-Switches active database connection to a target connection URI.
+## REST API Overview
 
-**Request Body**:
-```json
-{
-  "database_url": "postgresql://user:password@localhost:5432/analytics_db"
-}
-```
+The full interactive reference is always available at `/docs` (Swagger) once the backend is running. Highlights:
 
----
+| Endpoint | Purpose |
+|---|---|
+| `POST /chat` | Ask a natural-language question, get back SQL + results + report + chart suggestion + evaluation score |
+| `GET /chat/history` / `DELETE /chat/history` | Session conversation history |
+| `POST /connect/url` / `POST /connect/upload` | Connect a database |
+| `GET /schema` | Full schema tree of the active database |
+| `GET /database/*`, `/database/profile/*`, `/database/intelligence/*` | Discovery & profiling of the connected database |
+| `GET /evaluation/history`, `GET /evaluation/stats` | Per-request quality/confidence scores and aggregates |
+| `GET /stats`, `GET /health` | Usage/cost dashboard and health check |
 
-### `POST /connect/upload`
-Uploads a SQLite `.db` or `.sqlite` file and instantly sets it as active.
-
----
-
-### `DELETE /chat/history?session_id=<id>`
-Clears all sliding window conversation turns for the specified session ID.
+Other routers (`/query`, `/planning`, `/logical-query`, `/dialect`, `/sql`, `/sql_validation`, `/execution`, `/results`, `/semantic-analysis`, `/context`, `/ai`, `/conversation`, `/agent`, `/memory`) expose the individual pipeline stages directly — useful for debugging or building alternative frontends against the same building blocks.
 
 ---
 
-### `GET /schema`
-Extracts and returns the full introspected active database schema metadata (tables, columns, primary keys, foreign key relations, indexes).
-
----
-
-### `GET /health`
-Returns system health status, active provider, model name, and live real-time LLM ping latency.
-
----
-
-## Testing & Quality Assurance
-
-The backend repository includes unit and integration tests written using `pytest` and `pytest-asyncio`. Tests utilize mock LLM chains to execute deterministically without making external API calls.
-
-To run the complete test suite:
+## Testing
 
 ```bash
 cd backend
-pytest tests/ -v
+pytest tests/
 ```
 
-### Test Suite Coverage
-
-- **`test_agent.py`**: Validates agent intent routing, SQL generation fallback, `UNANSWERABLE` sentinels, and report formatting.
-- **`test_validation.py`**: Tests `sqlglot` AST safety rules (blocking `DROP`, `DELETE`, `UPDATE`), whitelist enforcing, LIMIT enforcement, and SQL dialect transpilation.
-- **`test_memory.py`**: Verifies per-session memory state retention, sliding window turn eviction, and TTL expiration logic.
-- **`test_api.py`**: Tests FastAPI REST routes (`/chat`, `/schema`, `/health`, `/connect/*`).
-- **`test_planner.py`**: Tests multi-step plan decomposition and execution.
-- **`test_schema_grounding.py`**: Tests seed-table resolution and schema pruning.
-- **`test_semantic_parser.py`**: Tests entity/metric/analysis-type extraction from questions.
-- **`test_sql_package.py`**: Tests the SQL prompt builder, validator, and repair engine as a package.
-
-Two standalone scripts in `backend/scripts/` (not part of the pytest suite) are also available for manual checks:
-- `check_db_connection.py` - prints the configured `DATABASE_URL` and lists its tables.
-- `manual_smoke_test.py` - runs a handful of representative questions (Arabic + English, simple + Planner + off-topic) end-to-end and prints the full response for eyeballing.
+Test suite covers the agent pipeline end-to-end, the REST API, memory TTL/windowing, the planner, schema grounding, semantic parsing, and the SQL build/validate/repair package. `backend/eval/` additionally holds an offline golden-dataset evaluation harness (`run_understanding_eval.py`, `compare_baseline.py`) separate from the runtime evaluation framework described above.
 
 ---
 
 ## Deployment
 
-### Railway Deployment
+Both `backend/` and `frontend/` include `railway.json` for one-service-per-app deployment on Railway, and standalone `Dockerfile`s for any container platform. Use `docker-compose.prod.yml` for a self-contained two-container deployment (no bind mounts, DB baked into the image).
 
-Each service contains a `railway.json` configuration file ready for zero-config Railway deployment:
+---
 
-1. **Backend Service**:
-   - Build Context: `backend/`
-   - Start Command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-   - Healthcheck Path: `/health`
+## Security Notes
 
-2. **Frontend Service**:
-   - Build Context: `frontend/`
-   - Start Command: `streamlit run app.py --server.port=$PORT --server.address=0.0.0.0`
-   - Environment Variable: `API_BASE_URL` set to the deployed backend Railway URL.
+- `backend/.env` and `backend/connection_profiles.json` (encrypted DB connection profiles) are git-ignored — never commit real credentials. A `connection_profiles.json` containing live encrypted profiles was found in this repo during cleanup and has been removed; rotate any credentials that were stored there before this point.
+- `ENABLE_DATA_MASKING` and `ENABLE_COST_GUARD` are on by default — keep them enabled in any environment where the agent has access to a real production database.
 
 ---
 
 ## License
 
-This project is open-source software licensed under the **[MIT License](LICENSE)**.
+MIT — see [LICENSE](LICENSE).

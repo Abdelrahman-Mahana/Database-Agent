@@ -10,9 +10,11 @@ from app.utils.token_tracker import reset_token_usage, get_current_token_usage
 from app.utils.cost_dashboard import cost_dashboard
 from app.core.config import settings
 from app.llm.model import get_llm_client
+from app.evaluation import AgentEvaluator
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 agent = AnalystAgent()
+evaluator = AgentEvaluator()
 
 
 @router.post("", response_model=ChatResponse)
@@ -46,6 +48,25 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db)):
             )
         except Exception:
             pass
+
+    # Score this request with the AI Evaluation Framework (best-effort —
+    # never let evaluation failures affect the actual response to the user).
+    # Results are queryable via GET /evaluation/history and /evaluation/stats.
+    try:
+        evaluation = evaluator.evaluate(
+            question=request.message,
+            sql_query=str(result.get("sql") or ""),
+            execution_payload={
+                "sql_execution_success": bool(result.get("success", True)),
+                "repair_attempts": result.get("repair_attempts", 0),
+            },
+            prompt_tokens=usage["prompt_tokens"],
+            completion_tokens=usage["completion_tokens"],
+        )
+        result["quality_score"] = evaluation.quality_score
+        result["confidence_score"] = evaluation.confidence_score
+    except Exception:
+        pass
 
     return ChatResponse(**result)
 

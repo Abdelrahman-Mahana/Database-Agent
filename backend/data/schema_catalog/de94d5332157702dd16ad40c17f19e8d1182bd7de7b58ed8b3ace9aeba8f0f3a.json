@@ -1,9 +1,9 @@
 {
-  "fingerprint": "2fc83443cfab19d541d9d90fb6d862dc08d849bc19f3ab07fa3b91f4f80f5795",
+  "fingerprint": "de94d5332157702dd16ad40c17f19e8d1182bd7de7b58ed8b3ace9aeba8f0f3a",
   "dialect": "SQLITE",
   "database_name": "Chinook",
   "tables": {},
-  "built_at": 1785671740.4843855,
+  "built_at": 1785746007.9786751,
   "glossary_enriched": false,
   "glossary_version": 0,
   "embeddings_built": false,
