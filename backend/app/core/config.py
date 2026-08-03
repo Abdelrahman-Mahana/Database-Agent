@@ -18,6 +18,7 @@ class Settings:
 
     ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     ollama_model = os.getenv("OLLAMA_MODEL", "gemma3:4b")
+    ollama_fast_model = os.getenv("OLLAMA_FAST_MODEL", "gemma3:4b")
 
     openrouter_api_key = os.getenv("OPENROUTER_API_KEY", "")
     openrouter_model = os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash")
@@ -33,6 +34,14 @@ class Settings:
     groq_base_url = os.getenv(
         "GROQ_BASE_URL",
         "https://api.groq.com/openai/v1",
+    )
+
+    openai_api_key = os.getenv("OPENAI_API_KEY", "")
+    openai_model = os.getenv("OPENAI_MODEL", "gpt-4o")
+    openai_fast_model = os.getenv("OPENAI_FAST_MODEL", "gpt-4o-mini")
+    openai_base_url = os.getenv(
+        "OPENAI_BASE_URL",
+        "https://api.openai.com/v1",
     )
 
     # Self-consistency config

@@ -410,10 +410,130 @@ class GroqClient:
         return fallbacks.get(self.model, {"prompt": 0.10, "completion": 0.10})
 
 
+class OpenAIClient:
+    """Client for OpenAI LLM API."""
+
+    def __init__(
+        self,
+        api_key: str = None,
+        model: str = None,
+        base_url: str = None,
+    ):
+        self.provider = "openai"
+        self.api_key = api_key or settings.openai_api_key
+        self.model = model or settings.openai_model
+        self.base_url = (base_url or settings.openai_base_url).rstrip("/")
+        self.client = httpx.AsyncClient(timeout=120.0)
+
+    async def generate(self, prompt: str, system: str = SYSTEM_PROMPT, temperature: float = 0.1) -> str:
+        """Generate a response from the LLM via OpenAI."""
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": temperature,
+        }
+        try:
+            response = await self.client.post(
+                f"{self.base_url}/chat/completions",
+                headers=headers,
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+            choices = data.get("choices", [])
+            if choices:
+                return choices[0].get("message", {}).get("content", "").strip()
+            return ""
+        except httpx.HTTPError as e:
+            raise RuntimeError(f"OpenAI API error: {e}") from e
+
+    async def generate_stream(self, prompt: str, system: str = SYSTEM_PROMPT, temperature: float = 0.1) -> AsyncGenerator[str, None]:
+        """Stream a response from the LLM via OpenAI."""
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": temperature,
+            "stream": True,
+        }
+        async with self.client.stream("POST", f"{self.base_url}/chat/completions", headers=headers, json=payload) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if line.startswith("data: "):
+                    data_str = line[6:].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        data = json.loads(data_str)
+                        choices = data.get("choices", [])
+                        if choices:
+                            delta = choices[0].get("delta", {})
+                            if "content" in delta:
+                                yield delta["content"]
+                    except json.JSONDecodeError:
+                        continue
+
+    async def health_check(self) -> tuple[bool, float]:
+        """Check if OpenAI is available by pinging it and measuring latency."""
+        import time
+        if not self.api_key:
+            return False, 0.0
+        try:
+            start_time = time.time()
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            }
+            payload = {
+                "model": self.model,
+                "messages": [{"role": "user", "content": "ping"}],
+                "max_tokens": 1,
+            }
+            response = await self.client.post(
+                f"{self.base_url}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=5.0
+            )
+            response.raise_for_status()
+            latency = (time.time() - start_time) * 1000
+            return True, latency
+        except Exception:
+            return False, 0.0
+
+    async def get_pricing(self) -> dict[str, float]:
+        """Get model pricing per 1M tokens for OpenAI models."""
+        fallbacks = {
+            "gpt-4o": {"prompt": 2.50, "completion": 10.00},
+            "gpt-4o-mini": {"prompt": 0.15, "completion": 0.60},
+            "o1": {"prompt": 15.00, "completion": 60.00},
+            "o1-mini": {"prompt": 1.10, "completion": 4.40},
+            "o3-mini": {"prompt": 1.10, "completion": 4.40},
+            "gpt-4-turbo": {"prompt": 10.00, "completion": 30.00},
+            "gpt-3.5-turbo": {"prompt": 0.50, "completion": 1.50},
+        }
+        return fallbacks.get(self.model, {"prompt": 1.00, "completion": 3.00})
+
+
 def get_llm_client():
     """Factory function to get the appropriate LLM client."""
     provider = settings.llm_provider
-    if provider == "groq":
+    if provider == "openai":
+        return OpenAIClient()
+    elif provider == "groq":
         return GroqClient()
     elif provider == "openrouter":
         return OpenRouterClient()
@@ -424,7 +544,20 @@ def get_langchain_llm(tier: str = "primary", temperature: float = 0.1):
     """Factory function to get a LangChain LLM instance (ChatOpenAI or ChatOllama)."""
     cb = ContextTokenTrackerCallback()
     provider = settings.llm_provider
-    if provider == "groq":
+    if provider == "openai":
+        model_name = (
+            settings.openai_model
+            if tier == "primary"
+            else settings.openai_fast_model
+        )
+        return ChatOpenAI(
+            model_name=model_name,
+            openai_api_key=settings.openai_api_key,
+            openai_api_base=settings.openai_base_url,
+            temperature=temperature,
+            callbacks=[cb],
+        )
+    elif provider == "groq":
         model_name = (
             settings.groq_model
             if tier == "primary"
@@ -460,7 +593,11 @@ def get_langchain_llm(tier: str = "primary", temperature: float = 0.1):
         # Default/fallback to Ollama
         if ChatOllama is None:
             raise RuntimeError("ChatOllama is not installed or unavailable in this environment.")
-        model_name = settings.ollama_model
+        model_name = (
+            settings.ollama_model
+            if tier == "primary"
+            else settings.ollama_fast_model
+        )
         return ChatOllama(
             base_url=settings.ollama_base_url,
             model=model_name,

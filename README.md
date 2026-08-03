@@ -126,7 +126,7 @@ Database-Agent-AI/
 │   │   ├── dialect/                 # Cross-dialect SQL transpilation
 │   │   ├── evaluation/              # Request scoring framework (see above)
 │   │   ├── execution/               # Safe query execution
-│   │   ├── llm/                     # Provider clients (OpenRouter/Groq/Ollama) & prompts
+│   │   ├── llm/                     # Provider clients (OpenAI/OpenRouter/Groq/Ollama) & prompts
 │   │   ├── logical_query/           # Logical query IR
 │   │   ├── orchestrator/            # LangGraph-based orchestration (feature-flagged)
 │   │   ├── planning/                # Plan-and-execute decomposition
@@ -168,7 +168,7 @@ Database-Agent-AI/
 |---|---|
 | Backend framework | FastAPI, dependency-injector (DI container), Uvicorn |
 | Agent / LLM orchestration | LangChain, LangGraph (optional graph orchestrator) |
-| LLM providers | OpenRouter, Groq, local Ollama |
+| LLM providers | OpenAI, OpenRouter, Groq, local Ollama |
 | SQL safety | sqlglot (AST validation & dialect transpilation), sqlparse |
 | Data layer | SQLAlchemy 2.x — SQLite, PostgreSQL (`psycopg2`), MySQL/MariaDB (`pymysql`) |
 | Logging | structlog, loguru |
@@ -184,13 +184,13 @@ Database-Agent-AI/
 - Python 3.12+ and `pip` (or `uv`)
 - Node.js 18+ and `npm`
 - Docker & Docker Compose (optional, recommended)
-- An API key for at least one LLM provider (OpenRouter or Groq), or a local Ollama install
+- An API key for at least one LLM provider (OpenAI, OpenRouter, or Groq), or a local Ollama install
 
 ### Option 1: Docker Compose (recommended)
 
 ```bash
 cp backend/.env.example backend/.env
-# edit backend/.env and add your OPENROUTER_API_KEY (or configure Groq/Ollama)
+# edit backend/.env and add your OPENAI_API_KEY (or configure Groq/OpenRouter/Ollama)
 
 docker compose up --build
 ```
@@ -224,7 +224,7 @@ The backend ships with `backend/chinook.db` (a sample music-store database) so y
 
 All configuration is environment-variable driven — see [`backend/.env.example`](backend/.env.example) for the full list with defaults, including:
 
-- `DATABASE_URL`, `LLM_PROVIDER` (`openrouter` | `groq` | `ollama`) and per-provider keys/models
+- `DATABASE_URL`, `LLM_PROVIDER` (`openai` | `openrouter` | `groq` | `ollama`) and per-provider keys/models
 - SQL generation knobs: `SQL_CANDIDATES`, `ENABLE_SELF_CONSISTENCY`, `ENABLE_REPORT_VERIFICATION`
 - Caching: `REDIS_URL` (optional; falls back to in-memory) and per-resource TTLs
 - Memory: `MEMORY_WINDOW_SIZE`, `MEMORY_TTL_SECONDS`
