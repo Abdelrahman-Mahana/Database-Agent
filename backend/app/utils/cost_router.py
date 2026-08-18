@@ -13,7 +13,7 @@ ambiguity markers) — no extra LLM call needed to decide.
 """
 from __future__ import annotations
 
-from app.core.config import settings
+from app.config.settings import settings
 from app.utils.text_processor import AnalysisType, COMPLEX_ANALYSIS_TYPES
 
 # Analysis types where a single wrong JOIN/GROUP BY choice is likely and
@@ -28,17 +28,17 @@ _AMBIGUITY_MARKERS_EN = ("best", "top", "most", "compare", "vs", "versus", "tren
 _AMBIGUITY_MARKERS_AR = ("أفضل", "أكثر", "قارن", "مقارنة", "اتجاه", "لماذا", "علاقة")
 
 
-def should_use_self_consistency(question: str, analysis_type: AnalysisType) -> bool:
-    """Decide whether this specific question should get self-consistency voting.
-
-    Global settings still act as hard bounds:
-      - if ENABLE_SELF_CONSISTENCY=false AND the question isn't flagged as
-        voting-worthy, we skip it (safe default, no surprise cost increase).
-      - if ENABLE_SELF_CONSISTENCY=true, voting-worthy/ambiguous questions
-        still get it, but simple lookup/count questions are downgraded to a
-        single candidate to avoid paying 3x for "how many rows in Orders".
-    """
+def should_use_self_consistency(
+    question: str,
+    analysis_type: AnalysisType,
+    schema_token_estimate: int = 0,
+) -> bool:
+    """Decide whether this specific question should get self-consistency voting."""
     if settings.sql_candidates <= 1:
+        return False
+
+    max_sc_tokens = getattr(settings, "self_consistency_max_schema_tokens", 4000)
+    if schema_token_estimate > max_sc_tokens:
         return False
 
     is_voting_worthy_type = analysis_type in _VOTING_WORTHY_TYPES
@@ -58,26 +58,25 @@ def should_use_self_consistency(question: str, analysis_type: AnalysisType) -> b
     return is_voting_worthy_type or has_ambiguity_marker
 
 
-def choose_sql_generation_tier(question: str, analysis_type: AnalysisType, confidence: float = 1.0) -> str:
-    """Rebuild Plan — Phase 6: real model-tier routing.
+
+def choose_sql_generation_tier(
+    question: str,
+    analysis_type: AnalysisType,
+    confidence: float = 1.0,
+    grounded_table_count: int = 1,
+    has_grouping: bool = False,
+) -> str:
+    """Rebuild Plan — Phase 6 & Phase 6.4: real model-tier routing.
 
     Returns "fast" or "primary" for the SQL-GENERATION call specifically.
-    Deliberately reuses the exact same signals this module already computes
-    for the self-consistency decision above (analysis_type classification +
-    ambiguity markers + the understanding layer's own confidence) instead of
-    inventing a second, separate heuristic - the roadmap's explicit ask.
 
-    A question only gets downgraded to the fast/cheap model when ALL of:
-      - it's a simple type (lookup/count) - not ranking/comparison/trend/
-        root_cause/multi_step, which is exactly `_VOTING_WORTHY_TYPES` above
-        (same "is this actually simple" signal driving BOTH decisions).
-      - it has no ambiguity marker.
-      - the understanding layer was confident about it (>= threshold). A
-        low-confidence LOOKUP is still routed to "primary" - if the
-        understanding itself is unsure, don't also cheap out on generation.
-    Never affects self-consistency-eligible questions - those are already
-    the ones this function routes to "primary" anyway (voting on the cheap
-    model would undermine the whole point of voting).
+    A question is allowed to use the fast model ONLY when ALL of:
+      - analysis_type is LOOKUP or COUNT
+      - confidence >= settings.model_routing_min_confidence
+      - no ambiguity marker exists
+      - grounded_table_count == 1 (single-table queries only; multi-table JOINs require primary)
+      - has_grouping is False (queries requiring GROUP BY require primary)
+    Otherwise routes to "primary".
     """
     if not settings.enable_model_routing:
         return "primary"
@@ -88,7 +87,10 @@ def choose_sql_generation_tier(question: str, analysis_type: AnalysisType, confi
         m in question for m in _AMBIGUITY_MARKERS_AR
     )
     is_confident = confidence >= settings.model_routing_min_confidence
+    is_single_table = grounded_table_count == 1
+    no_grouping = not has_grouping
 
-    if is_simple_type and not has_ambiguity_marker and is_confident:
+    if is_simple_type and not has_ambiguity_marker and is_confident and is_single_table and no_grouping:
         return "fast"
     return "primary"
+

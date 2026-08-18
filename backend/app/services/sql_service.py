@@ -8,9 +8,13 @@ from typing import Any, Dict, Optional, Tuple
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
+from loguru import logger
 
-from app.core.config import settings
+from app.config.settings import settings
 from app.database import db
+from app.database.system_store import system_store
+from app.database.context import DatabaseContext, db_context_manager, compute_db_fingerprint
+import json
 
 
 class SchemaCacheEntry:
@@ -40,6 +44,27 @@ class SchemaCacheEntry:
             return True
         return False
 
+    def to_dict(self):
+        return {
+            "schema": self.schema,
+            "schema_text": self.schema_text,
+            "fingerprint": self.fingerprint,
+            "timestamp": self.timestamp,
+            "recommended_questions": self.recommended_questions,
+            "explorer_data": self.explorer_data,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        return cls(
+            schema=data.get("schema", {}),
+            schema_text=data.get("schema_text", ""),
+            fingerprint=data.get("fingerprint", ""),
+            timestamp=data.get("timestamp", 0.0),
+            recommended_questions=data.get("recommended_questions"),
+            explorer_data=data.get("explorer_data"),
+        )
+
 
 class SchemaService:
     """
@@ -48,17 +73,16 @@ class SchemaService:
     """
 
     _lock = threading.RLock()
-    _cache_store: Dict[str, SchemaCacheEntry] = {}
 
     def __init__(self, bind_engine=None):
         self._bind_engine = bind_engine
-        self.ttl = getattr(settings, "schema_cache_ttl", int(os.getenv("SCHEMA_CACHE_TTL", "3600")))
+        self.ttl = settings.schema_cache_ttl
 
     @property
     def engine(self):
         if self._bind_engine is not None:
             return self._bind_engine
-        return db.engine
+        return db.get_engine()
 
     @property
     def inspector(self):
@@ -66,23 +90,100 @@ class SchemaService:
 
     def _get_db_fingerprint(self) -> str:
         """Generate a unique fingerprint based on database identity and file state."""
-        url_str = str(self.engine.url)
-        extra = ""
-        # If SQLite file database, append file mtime and size to auto-detect schema updates on disk
-        if url_str.startswith("sqlite") and self.engine.url.database:
-            db_path = self.engine.url.database
-            if os.path.exists(db_path):
-                stat = os.stat(db_path)
-                extra = f":mtime={stat.st_mtime}:size={stat.st_size}"
-        raw_key = f"{url_str}{extra}"
-        return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+        return compute_db_fingerprint(self.engine)
+
+    def _populate_context_from_entry(self, entry: SchemaCacheEntry, fingerprint: str) -> DatabaseContext:
+        """Populate or update the in-RAM DatabaseContext from a SchemaCacheEntry."""
+        ctx = db_context_manager.get(fingerprint)
+        if ctx is None:
+            ctx = DatabaseContext(
+                fingerprint=fingerprint,
+                url=str(self.engine.url),
+                dialect=self.get_database_type().lower(),
+                database_name=self.get_database_name(),
+                engine=self.engine,
+                schema=entry.schema,
+                schema_text=entry.schema_text,
+                explorer_data=entry.explorer_data,
+                recommended_questions=entry.recommended_questions,
+                table_names_set=set(entry.schema.keys()),
+                ttl=self.ttl,
+            )
+        else:
+            ctx.schema = entry.schema
+            ctx.schema_text = entry.schema_text
+            ctx.explorer_data = entry.explorer_data
+            ctx.recommended_questions = entry.recommended_questions
+            ctx.table_names_set = set(entry.schema.keys())
+
+        # Ensure catalog, join graph, and retrieval indexes are prepared once in RAM
+        ctx.ensure_indexes()
+        db_context_manager.set(fingerprint, ctx)
+        return ctx
+
+    def get_database_context(self) -> DatabaseContext:
+        """Return the DatabaseContext singleton directly from RAM (0ms), or build and cache it."""
+        fingerprint = self._get_db_fingerprint()
+        ctx = db_context_manager.get(fingerprint)
+        if ctx and ctx.schema:
+            return ctx
+
+        with self._lock:
+            ctx = db_context_manager.get(fingerprint)
+            if ctx and ctx.schema:
+                return ctx
+
+            entry = self._get_valid_entry()
+            if entry and entry.schema:
+                return self._populate_context_from_entry(entry, fingerprint)
+
+            self.refresh_cache()
+            ctx = db_context_manager.get(fingerprint)
+            if ctx and ctx.schema:
+                return ctx
+
+            entry = self._get_valid_entry()
+            if entry:
+                return self._populate_context_from_entry(entry, fingerprint)
+
+            # Minimal fallback context
+            fallback_ctx = DatabaseContext(
+                fingerprint=fingerprint,
+                url=str(self.engine.url),
+                dialect=self.get_database_type().lower(),
+                database_name=self.get_database_name(),
+                engine=self.engine,
+                ttl=self.ttl,
+            )
+            db_context_manager.set(fingerprint, fallback_ctx)
+            return fallback_ctx
 
     def _get_valid_entry(self) -> Optional[SchemaCacheEntry]:
         fingerprint = self._get_db_fingerprint()
-        with self._lock:
-            entry = self._cache_store.get(fingerprint)
-            if entry and not entry.is_expired(self.ttl, fingerprint):
-                return entry
+        
+        # 1. Fast in-memory RAM check (0ms lookup, zero disk I/O, zero JSON deserialization)
+        ctx = db_context_manager.get(fingerprint)
+        if ctx and ctx.schema:
+            return SchemaCacheEntry(
+                schema=ctx.schema,
+                schema_text=ctx.schema_text,
+                fingerprint=fingerprint,
+                timestamp=ctx.created_at,
+                recommended_questions=ctx.recommended_questions,
+                explorer_data=ctx.explorer_data,
+            )
+
+        # 2. Fast local SQLite schema cache on cold start / cache miss
+        data = system_store.get_schema_cache(fingerprint)
+        if data:
+            try:
+                entry = SchemaCacheEntry.from_dict(data)
+                if not entry.is_expired(self.ttl, fingerprint):
+                    self._populate_context_from_entry(entry, fingerprint)
+                    return entry
+            except Exception as e:
+                logger.warning(f"Error parsing schema cache from local store: {e}")
+                
         return None
 
     def get_explorer_data(self) -> dict[str, Any]:
@@ -101,17 +202,27 @@ class SchemaService:
 
     def get_schema(self) -> dict[str, Any]:
         """Return the full discovered schema, using fingerprint-aware TTL caching."""
+        schema, _, _, _ = self.get_schema_with_timing()
+        return schema
+
+    def get_schema_with_timing(self) -> Tuple[dict[str, Any], bool, float, float]:
+        """Return (schema, cache_hit, cache_lookup_ms, discovery_ms)."""
+        t0 = time.perf_counter()
         entry = self._get_valid_entry()
         if entry:
-            return entry.schema
+            lookup_ms = (time.perf_counter() - t0) * 1000
+            return entry.schema, True, lookup_ms, 0.0
 
         with self._lock:
-            # Double-checked locking pattern
+            t_lock = time.perf_counter()
             entry = self._get_valid_entry()
             if entry:
-                return entry.schema
+                lookup_ms = (time.perf_counter() - t0) * 1000
+                return entry.schema, True, lookup_ms, 0.0
             schema, _ = self.refresh_cache()
-            return schema
+            disc_ms = (time.perf_counter() - t_lock) * 1000
+            lookup_ms = (time.perf_counter() - t0) * 1000
+            return schema, False, lookup_ms, disc_ms
 
     def get_schema_text(self) -> str:
         """Return schema formatted as readable text for LLM prompts, using fingerprint-aware TTL caching."""
@@ -162,6 +273,7 @@ class SchemaService:
         entry = self._get_valid_entry()
         if entry:
             entry.recommended_questions = questions
+            self._save_entry(entry, self._get_db_fingerprint())
         return questions
 
     def _generate_recommended_questions(self, schema: dict[str, Any]) -> list[dict[str, Any]]:
@@ -241,18 +353,52 @@ class SchemaService:
         If db_url is provided, invalidates entries matching that URL.
         Otherwise, clears all cached schemas.
         """
+        from app.schema_grounding.schema_intelligence import SchemaIntelligenceCache
+        
+        if db_url:
+            target_hash = compute_db_fingerprint(db_url)
+            target_hash_prefix = target_hash[:16]
+            system_store.clear_schema_cache(db_hash_prefix=target_hash_prefix)
+            db_context_manager.invalidate(target_hash)
+        else:
+            system_store.clear_schema_cache()
+            db_context_manager.clear()
+
         with cls._lock:
             if db_url:
-                target_hash_prefix = hashlib.sha256(db_url.encode("utf-8")).hexdigest()[:16]
-                keys_to_del = [k for k in cls._cache_store if k.startswith(target_hash_prefix)]
-                for k in keys_to_del:
-                    del cls._cache_store[k]
+                target_hash = compute_db_fingerprint(db_url)
+                target_hash_prefix = target_hash[:16]
+                SchemaIntelligenceCache.clear(target_hash_prefix)
             else:
-                cls._cache_store.clear()
+                SchemaIntelligenceCache.clear()
+
+    def _save_entry(self, entry: SchemaCacheEntry, fingerprint: str):
+        system_store.set_schema_cache(fingerprint, entry.to_dict())
+        self._populate_context_from_entry(entry, fingerprint)
 
     def refresh_cache(self) -> Tuple[dict[str, Any], str]:
         """Force re-introspection of the database schema and update the cache."""
         fingerprint = self._get_db_fingerprint()
+
+        # Check if persistent CatalogBuilder disk profile exists for instant warm start
+        try:
+            from app.schema_catalog.catalog_builder import CatalogBuilder
+            catalog_builder = CatalogBuilder(schema_service=self)
+            cached_catalog = catalog_builder._load_from_disk(fingerprint)
+            if cached_catalog is not None and cached_catalog.tables:
+                schema, schema_text, explorer_data = self._rehydrate_from_catalog(cached_catalog)
+                entry = SchemaCacheEntry(
+                    schema=schema,
+                    schema_text=schema_text,
+                    fingerprint=fingerprint,
+                    timestamp=time.time(),
+                    explorer_data=explorer_data,
+                )
+                self._save_entry(entry, fingerprint)
+                return schema, schema_text
+        except Exception:
+            pass
+
         schema, schema_text, explorer_data = self._introspect_schema()
         entry = SchemaCacheEntry(
             schema=schema,
@@ -261,25 +407,167 @@ class SchemaService:
             timestamp=time.time(),
             explorer_data=explorer_data,
         )
-        with self._lock:
-            self._cache_store[fingerprint] = entry
+        self._save_entry(entry, fingerprint)
         return schema, schema_text
+
+    def _rehydrate_from_catalog(self, catalog: Any) -> Tuple[dict[str, Any], str, dict[str, Any]]:
+        """Reconstruct (schema, schema_text, explorer_data) instantly from a disk-persisted SchemaCatalog."""
+        db_name = getattr(catalog, "database_name", None) or self.get_database_name()
+        db_type = getattr(catalog, "dialect", None) or self.get_database_type()
+
+        schema = {}
+        tables_list = []
+        total_cols = 0
+        total_indexes = 0
+        total_fks = 0
+
+        lines = ["Database Schema:"]
+
+        for tname, prof in catalog.tables.items():
+            cols = []
+            for c in prof.columns:
+                cols.append({
+                    "name": c.name,
+                    "type": c.type,
+                    "nullable": c.nullable,
+                    "default": None,
+                    "primary_key": c.primary_key,
+                    "samples": c.samples or [],
+                    "date_range": c.date_range,
+                })
+
+            schema[tname] = {
+                "columns": cols,
+                "primary_key": prof.primary_key,
+                "foreign_keys": prof.foreign_keys,
+                "indexes": prof.indexes,
+            }
+
+            total_cols += len(cols)
+            total_indexes += len(prof.indexes)
+            total_fks += len(prof.foreign_keys)
+
+            lines.append(f"\nTable: {tname}")
+            for col in cols:
+                col_str = f"  - {col['name']} ({col['type']})"
+                if not col["nullable"]:
+                    col_str += " NOT NULL"
+                if col.get("samples"):
+                    col_str += f" -- Sample values: {', '.join(repr(s) for s in col['samples'])}"
+                if col.get("date_range"):
+                    col_str += f" -- Data range: {col['date_range']}"
+                lines.append(col_str)
+            if prof.primary_key:
+                lines.append(f"  PK: {', '.join(prof.primary_key)}")
+            for fk in prof.foreign_keys:
+                lines.append(
+                    f"  FK: {', '.join(fk.get('constrained_columns', []))} -> "
+                    f"{fk.get('referred_table')}({', '.join(fk.get('referred_columns', []))})"
+                )
+
+            parts = tname.split(".")
+            sch_str = parts[0] if len(parts) > 1 else "public"
+            table_name = parts[-1]
+            tables_list.append({
+                "name": table_name,
+                "qualified_name": tname,
+                "catalog": db_name,
+                "schema": sch_str,
+                "object_type": "table",
+                "columns": cols,
+                "primary_key": prof.primary_key,
+                "foreign_keys": prof.foreign_keys,
+                "indexes": prof.indexes,
+                "constraints": [],
+                "definition": f"CREATE TABLE {table_name} (\n" + ",\n".join([f"  {c['name']} {c['type']}" for c in cols]) + "\n);",
+            })
+
+        schemas_present = set(t.get("schema", "public") for t in tables_list)
+        schema_tree_children = []
+        for sch in sorted(list(schemas_present)):
+            sch_table_children = [
+                {
+                    "id": f"table-{sch}-{t['name']}",
+                    "kind": "table",
+                    "name": t["name"],
+                    "path": [db_name, sch, "Tables", t["name"]],
+                    "meta": {
+                        "columns": len(t["columns"]),
+                        "indexes": len(t["indexes"]),
+                        "foreign_keys": len(t["foreign_keys"]),
+                    },
+                }
+                for t in tables_list if t.get("schema") == sch
+            ]
+            sch_folders = []
+            if sch_table_children:
+                sch_folders.append({
+                    "id": f"folder-tables-{db_name}-{sch}",
+                    "kind": "folder",
+                    "name": "Tables",
+                    "path": [db_name, sch, "Tables"],
+                    "children": sch_table_children,
+                })
+            schema_tree_children.append({
+                "id": f"sch-{sch}-{db_name}",
+                "kind": "catalog",
+                "name": sch,
+                "path": [db_name, sch],
+                "children": sch_folders,
+            })
+
+        schema_text = "\n".join(lines)
+        explorer_data = {
+            "tables": tables_list,
+            "views": [],
+            "procedures": [],
+            "collections": [],
+            "hierarchy": {"name": db_name, "type": "database", "children": schema_tree_children},
+            "schema_tree": schema_tree_children,
+            "summary": {
+                "database_name": db_name,
+                "database_type": db_type,
+                "tables": len(catalog.tables),
+                "views": 0,
+                "procedures": 0,
+                "collections": 0,
+                "columns": total_cols,
+                "indexes": total_indexes,
+                "foreign_keys": total_fks,
+                "total_tables": len(catalog.tables),
+                "total_views": 0,
+                "total_columns": total_cols,
+                "total_indexes": total_indexes,
+                "total_foreign_keys": total_fks,
+                "objects": {
+                    "tables": len(catalog.tables),
+                    "views": 0,
+                    "procedures": 0,
+                    "collections": 0,
+                }
+            }
+        }
+        return schema, schema_text, explorer_data
 
     _DATE_TYPE_MARKERS = ("DATE", "TIME", "TIMESTAMP")
 
-    def _sample_date_range(self, table_name: str, col_name: str) -> Optional[str]:
+    def _sample_date_range(self, table_name: str, col_name: str, schema_name: Optional[str] = None) -> Optional[str]:
         """
         Fetch the MIN/MAX of a date/datetime/timestamp column.
         """
         try:
             prep = self.inspector.dialect.identifier_preparer
             quoted_table = prep.quote(table_name)
+            if schema_name:
+                quoted_table = f"{prep.quote(schema_name)}.{quoted_table}"
             quoted_col = prep.quote(col_name)
             query = (
                 f"SELECT MIN({quoted_col}), MAX({quoted_col}) FROM {quoted_table} "
                 f"WHERE {quoted_col} IS NOT NULL"
             )
             with self.engine.connect() as conn:
+                if self.engine.dialect.name == "postgresql":
+                    conn.execute(text(f"SET statement_timeout = {settings.introspection_query_timeout * 1000}"))
                 row = conn.execute(text(query)).fetchone()
             if not row or row[0] is None:
                 return None
@@ -287,19 +575,28 @@ class SchemaService:
         except Exception:
             return None
 
-    def _sample_column_values(self, table_name: str, col_name: str, col_type: str) -> list[str]:
+    def _sample_column_values(self, table_name: str, col_name: str, col_type: Any, schema_name: Optional[str] = None) -> list[str]:
         """Fetch up to 3 distinct sample values for a text column."""
-        if not any(t in col_type.upper() for t in ("CHAR", "TEXT", "VARCHAR", "STRING")):
+        if not any(t in str(col_type).upper() for t in ("CHAR", "TEXT", "VARCHAR", "STRING")):
             return []
         try:
             prep = self.inspector.dialect.identifier_preparer
             quoted_table = prep.quote(table_name)
+            if schema_name:
+                quoted_table = f"{prep.quote(schema_name)}.{quoted_table}"
             quoted_col = prep.quote(col_name)
-            query = (
-                f"SELECT {quoted_col} FROM {quoted_table} "
-                f"WHERE {quoted_col} IS NOT NULL LIMIT 200"
-            )
+            
+            dialect_name = self.engine.dialect.name.lower()
+            if dialect_name in ("mssql", "sybase"):
+                query = f"SELECT TOP 200 {quoted_col} FROM {quoted_table} WHERE {quoted_col} IS NOT NULL"
+            elif dialect_name == "oracle":
+                query = f"SELECT {quoted_col} FROM {quoted_table} WHERE {quoted_col} IS NOT NULL FETCH FIRST 200 ROWS ONLY"
+            else:
+                query = f"SELECT {quoted_col} FROM {quoted_table} WHERE {quoted_col} IS NOT NULL LIMIT 200"
+
             with self.engine.connect() as conn:
+                if dialect_name == "postgresql":
+                    conn.execute(text(f"SET statement_timeout = {settings.introspection_query_timeout * 1000}"))
                 result = conn.execute(text(query))
                 rows = result.fetchall()
             candidates_in_order = [
@@ -310,6 +607,134 @@ class SchemaService:
             return distinct_vals[:3]
         except Exception:
             return []
+
+    def profile_table_data(self, table_name: str, schema_name: Optional[str] = None, target_columns: Optional[list[dict]] = None) -> dict[str, Any]:
+        """
+        Asynchronously called to profile a single table: row counts and sample values.
+        Returns a dictionary containing the row count and column profiles.
+        If `target_columns` is provided, it avoids redundant SQLAlchemy inspector queries.
+        `target_columns` format: [{"name": "col_name", "type": "VARCHAR", "is_pk": False}, ...]
+        """
+        from app.schema_catalog.catalog_builder import CatalogBuilder
+        
+        # Use a temporary builder instance just for the row count function,
+        # or implement it here directly. We'll use CatalogBuilder's safe row count logic.
+        builder = CatalogBuilder(self)
+        fqn = f"{schema_name}.{table_name}" if schema_name and schema_name != "public" else table_name
+        
+        row_count = builder._safe_row_count(fqn)
+        
+        col_updates = {}
+        
+        try:
+            if target_columns is not None:
+                columns_to_process = target_columns
+            else:
+                insp_cols = self.inspector.get_columns(table_name, schema=schema_name)
+                
+                # Find primary keys to skip sampling
+                try:
+                    pk_info = self.inspector.get_pk_constraint(table_name, schema=schema_name)
+                    pk_cols = pk_info.get("constrained_columns", [])
+                except Exception:
+                    pk_cols = []
+                    
+                columns_to_process = [
+                    {"name": col["name"], "type": str(col["type"]).upper(), "is_pk": col["name"] in pk_cols}
+                    for col in insp_cols
+                ]
+                
+            text_cols_sampled = 0
+            max_text_cols = 4 # Default for background profiling per table
+            
+            for col in columns_to_process:
+                col_name = col["name"]
+                col_type_str = str(col["type"]).upper()
+                is_pk = col.get("is_pk", False)
+                
+                samples = []
+                date_range = None
+                
+                if any(t in col_type_str for t in self._DATE_TYPE_MARKERS):
+                    date_range = self._sample_date_range(table_name, col_name, schema_name)
+                elif text_cols_sampled < max_text_cols and not is_pk:
+                    fetched_samples = self._sample_column_values(table_name, col_name, col_type_str, schema_name)
+                    if fetched_samples:
+                        samples = fetched_samples
+                        text_cols_sampled += 1
+                        
+                col_updates[col_name] = {
+                    "samples": samples,
+                    "date_range": date_range
+                }
+        except Exception as e:
+            logger.debug(f"Failed to sample data for {table_name}: {e}")
+            
+        return {
+            "row_count": row_count,
+            "columns": col_updates
+        }
+
+
+    def _try_bulk_columns(self, insp: Any, schema_name: Optional[str]) -> Optional[dict[str, list[dict]]]:
+        """Try calling insp.get_multi_columns(schema=schema_name) and normalize keys to table_name."""
+        if not hasattr(insp, "get_multi_columns"):
+            return None
+        try:
+            raw_multi = insp.get_multi_columns(schema=schema_name)
+            result = {}
+            for k, cols in raw_multi.items():
+                tname = k[1] if isinstance(k, tuple) else k
+                result[tname] = cols
+            return result
+        except Exception as e:
+            logger.debug("Bulk get_multi_columns failed for schema %s: %s", schema_name, e)
+            return None
+
+    def _try_bulk_pk_constraints(self, insp: Any, schema_name: Optional[str]) -> Optional[dict[str, dict]]:
+        """Try calling insp.get_multi_pk_constraint(schema=schema_name) and normalize keys to table_name."""
+        if not hasattr(insp, "get_multi_pk_constraint"):
+            return None
+        try:
+            raw_multi = insp.get_multi_pk_constraint(schema=schema_name)
+            result = {}
+            for k, pk in raw_multi.items():
+                tname = k[1] if isinstance(k, tuple) else k
+                result[tname] = pk
+            return result
+        except Exception as e:
+            logger.debug("Bulk get_multi_pk_constraint failed for schema %s: %s", schema_name, e)
+            return None
+
+    def _try_bulk_foreign_keys(self, insp: Any, schema_name: Optional[str]) -> Optional[dict[str, list[dict]]]:
+        """Try calling insp.get_multi_foreign_keys(schema=schema_name) and normalize keys to table_name."""
+        if not hasattr(insp, "get_multi_foreign_keys"):
+            return None
+        try:
+            raw_multi = insp.get_multi_foreign_keys(schema=schema_name)
+            result = {}
+            for k, fks in raw_multi.items():
+                tname = k[1] if isinstance(k, tuple) else k
+                result[tname] = fks
+            return result
+        except Exception as e:
+            logger.debug("Bulk get_multi_foreign_keys failed for schema %s: %s", schema_name, e)
+            return None
+
+    def _try_bulk_indexes(self, insp: Any, schema_name: Optional[str]) -> Optional[dict[str, list[dict]]]:
+        """Try calling insp.get_multi_indexes(schema=schema_name) and normalize keys to table_name."""
+        if not hasattr(insp, "get_multi_indexes"):
+            return None
+        try:
+            raw_multi = insp.get_multi_indexes(schema=schema_name)
+            result = {}
+            for k, idxs in raw_multi.items():
+                tname = k[1] if isinstance(k, tuple) else k
+                result[tname] = idxs
+            return result
+        except Exception as e:
+            logger.debug("Bulk get_multi_indexes failed for schema %s: %s", schema_name, e)
+            return None
 
     def _introspect_schema(self) -> Tuple[dict[str, Any], str, dict[str, Any]]:
         """Perform raw database introspection via SQLAlchemy Inspector or MongoDB inspector."""
@@ -333,117 +758,237 @@ class SchemaService:
         total_fks = 0
         total_constraints = 0
 
-        # Introspect Tables
-        table_names = insp.get_table_names()
-        for table_name in table_names:
-            pk = insp.get_pk_constraint(table_name)
-            primary_key_columns = pk.get("constrained_columns", [])
-            columns = []
-            text_cols_sampled = 0
-            for col in insp.get_columns(table_name):
-                col_type_str = str(col["type"]).upper()
-                col_info = {
-                    "name": col["name"],
-                    "type": str(col["type"]),
-                    "nullable": col.get("nullable", True),
-                    "default": str(col["default"]) if col.get("default") else None,
-                    "primary_key": col["name"] in primary_key_columns,
-                    "samples": [],
-                    "date_range": None,
+        # Determine schemas to introspect
+        target_schemas = [None]
+        if db_type == "POSTGRESQL":
+            try:
+                target_schemas = [s for s in insp.get_schema_names() if s not in ('information_schema', 'pg_catalog', 'pg_toast')]
+            except Exception:
+                target_schemas = ["public"]
+
+
+
+        t_intro_start = time.perf_counter()
+        used_bulk_categories = []
+        used_legacy_categories = []
+        t_bulk_cols_total = 0.0
+        t_bulk_pks_total = 0.0
+        t_bulk_fks_total = 0.0
+        t_bulk_idxs_total = 0.0
+        t_tables_disc_total = 0.0
+
+        for schema_name in target_schemas:
+            t0 = time.perf_counter()
+            # Introspect Tables
+            try:
+                table_names = insp.get_table_names(schema=schema_name)
+            except Exception:
+                continue
+            t_tables_disc_total += (time.perf_counter() - t0) * 1000
+
+            # Attempt bulk metadata loading per category
+            t0 = time.perf_counter()
+            bulk_cols_map = self._try_bulk_columns(insp, schema_name)
+            t_bulk_cols_total += (time.perf_counter() - t0) * 1000
+            if bulk_cols_map is not None:
+                if "columns" not in used_bulk_categories:
+                    used_bulk_categories.append("columns")
+            else:
+                if "columns" not in used_legacy_categories:
+                    used_legacy_categories.append("columns")
+
+            t0 = time.perf_counter()
+            bulk_pks_map = self._try_bulk_pk_constraints(insp, schema_name)
+            t_bulk_pks_total += (time.perf_counter() - t0) * 1000
+            if bulk_pks_map is not None:
+                if "primary_keys" not in used_bulk_categories:
+                    used_bulk_categories.append("primary_keys")
+            else:
+                if "primary_keys" not in used_legacy_categories:
+                    used_legacy_categories.append("primary_keys")
+
+            t0 = time.perf_counter()
+            bulk_fks_map = self._try_bulk_foreign_keys(insp, schema_name)
+            t_bulk_fks_total += (time.perf_counter() - t0) * 1000
+            if bulk_fks_map is not None:
+                if "foreign_keys" not in used_bulk_categories:
+                    used_bulk_categories.append("foreign_keys")
+            else:
+                if "foreign_keys" not in used_legacy_categories:
+                    used_legacy_categories.append("foreign_keys")
+
+            t0 = time.perf_counter()
+            bulk_idxs_map = self._try_bulk_indexes(insp, schema_name)
+            t_bulk_idxs_total += (time.perf_counter() - t0) * 1000
+            if bulk_idxs_map is not None:
+                if "indexes" not in used_bulk_categories:
+                    used_bulk_categories.append("indexes")
+            else:
+                if "indexes" not in used_legacy_categories:
+                    used_legacy_categories.append("indexes")
+
+            import concurrent.futures
+
+            def process_table(table_name):
+                # Primary key discovery
+                if bulk_pks_map is not None and table_name in bulk_pks_map:
+                    pk = bulk_pks_map[table_name]
+                    primary_key_columns = pk.get("constrained_columns", [])
+                else:
+                    try:
+                        pk = insp.get_pk_constraint(table_name, schema=schema_name)
+                        primary_key_columns = pk.get("constrained_columns", [])
+                    except Exception:
+                        primary_key_columns = []
+
+                columns = []
+                # Column discovery
+                if bulk_cols_map is not None and table_name in bulk_cols_map:
+                    insp_cols = bulk_cols_map[table_name]
+                else:
+                    try:
+                        insp_cols = insp.get_columns(table_name, schema=schema_name)
+                    except Exception:
+                        insp_cols = []
+
+                for col in insp_cols:
+                    col_info = {
+                        "name": col["name"],
+                        "type": str(col["type"]),
+                        "nullable": col.get("nullable", True),
+                        "default": str(col["default"]) if col.get("default") else None,
+                        "primary_key": col["name"] in primary_key_columns,
+                        "samples": [],
+                        "date_range": None,
+                    }
+                    columns.append(col_info)
+
+                # Foreign key discovery
+                fks = []
+                if bulk_fks_map is not None and table_name in bulk_fks_map:
+                    raw_fks = bulk_fks_map[table_name]
+                else:
+                    try:
+                        raw_fks = insp.get_foreign_keys(table_name, schema=schema_name)
+                    except Exception:
+                        raw_fks = []
+
+                for fk in raw_fks:
+                    fks.append({
+                        "constrained_columns": fk.get("constrained_columns", []),
+                        "referred_schema": fk.get("referred_schema"),
+                        "referred_table": fk.get("referred_table"),
+                        "referred_columns": fk.get("referred_columns", []),
+                    })
+
+                # Index discovery
+                indexes = []
+                if bulk_idxs_map is not None and table_name in bulk_idxs_map:
+                    raw_idxs = bulk_idxs_map[table_name]
+                else:
+                    try:
+                        raw_idxs = insp.get_indexes(table_name, schema=schema_name)
+                    except Exception:
+                        raw_idxs = []
+
+                for idx in raw_idxs:
+                    indexes.append({
+                        "name": idx["name"],
+                        "columns": idx.get("column_names", []),
+                        "unique": idx.get("unique", False),
+                    })
+
+                qual_name = f"{schema_name}.{table_name}" if schema_name else table_name
+                table_schema = {
+                    "columns": columns,
+                    "primary_key": primary_key_columns,
+                    "foreign_keys": fks,
+                    "indexes": indexes,
                 }
-                if any(t in col_type_str for t in self._DATE_TYPE_MARKERS):
-                    col_info["date_range"] = self._sample_date_range(table_name, col_info["name"])
-                elif text_cols_sampled < 8 and not col_info["primary_key"]:
-                    samples = self._sample_column_values(table_name, col_info["name"], col_info["type"])
-                    if samples:
-                        col_info["samples"] = samples
-                        text_cols_sampled += 1
-                columns.append(col_info)
 
-            fks = []
-            for fk in insp.get_foreign_keys(table_name):
-                fks.append({
-                    "constrained_columns": fk.get("constrained_columns", []),
-                    "referred_schema": fk.get("referred_schema"),
-                    "referred_table": fk.get("referred_table"),
-                    "referred_columns": fk.get("referred_columns", []),
-                })
-
-            indexes = []
-            for idx in insp.get_indexes(table_name):
-                indexes.append({
-                    "name": idx["name"],
-                    "columns": idx["column_names"],
-                    "unique": idx.get("unique", False),
-                })
-
-            schema[table_name] = {
-                "columns": columns,
-                "primary_key": pk.get("constrained_columns", []),
-                "foreign_keys": fks,
-                "indexes": indexes,
-            }
-
-            total_cols += len(columns)
-            total_indexes += len(indexes)
-            total_fks += len(fks)
-
-            tbl_obj = {
-                "name": table_name,
-                "qualified_name": f"{db_name}.main.{table_name}",
-                "catalog": db_name,
-                "schema": "main",
-                "object_type": "table",
-                "columns": columns,
-                "primary_key": pk.get("constrained_columns", []),
-                "foreign_keys": fks,
-                "indexes": indexes,
-                "constraints": [],
-                "definition": f"CREATE TABLE {table_name} (\n" + ",\n".join([f"  {c['name']} {c['type']}" for c in columns]) + "\n);",
-            }
-            tables_list.append(tbl_obj)
-
-        # Introspect Views
-        try:
-            view_names = insp.get_view_names()
-            for v_name in view_names:
-                try:
-                    v_cols = [
-                        {
-                            "name": c["name"],
-                            "type": str(c["type"]),
-                            "nullable": c.get("nullable", True),
-                            "default": None,
-                            "primary_key": False,
-                            "samples": [],
-                            "date_range": None,
-                        }
-                        for c in insp.get_columns(v_name)
-                    ]
-                except Exception:
-                    v_cols = []
-                try:
-                    v_def = insp.get_view_definition(v_name)
-                except Exception:
-                    v_def = None
-
-                view_obj = {
-                    "name": v_name,
-                    "qualified_name": f"{db_name}.main.{v_name}",
+                sch_str = schema_name or "main"
+                tbl_obj = {
+                    "name": table_name,
+                    "qualified_name": f"{db_name}.{sch_str}.{table_name}",
                     "catalog": db_name,
-                    "schema": "main",
-                    "object_type": "view",
-                    "columns": v_cols,
-                    "primary_key": [],
-                    "foreign_keys": [],
-                    "indexes": [],
+                    "schema": sch_str,
+                    "object_type": "table",
+                    "columns": columns,
+                    "primary_key": primary_key_columns,
+                    "foreign_keys": fks,
+                    "indexes": indexes,
                     "constraints": [],
-                    "definition": v_def or f"CREATE VIEW {v_name} AS SELECT * FROM ...;",
+                    "definition": f"CREATE TABLE {table_name} (\n" + ",\n".join([f"  {c['name']} {c['type']}" for c in columns]) + "\n);",
                 }
-                views_list.append(view_obj)
-                total_cols += len(v_cols)
-        except Exception:
-            pass
+                return qual_name, table_schema, tbl_obj
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+                futures = {executor.submit(process_table, tname): tname for tname in table_names}
+                for future in concurrent.futures.as_completed(futures):
+                    try:
+                        qual_name, table_schema, tbl_obj = future.result()
+                        schema[qual_name] = table_schema
+                        tables_list.append(tbl_obj)
+                        
+                        total_cols += len(table_schema["columns"])
+                        total_indexes += len(table_schema["indexes"])
+                        total_fks += len(table_schema["foreign_keys"])
+                    except Exception as e:
+                        logger.warning(f"Error processing table {futures[future]}: {e}")
+
+
+            # Introspect Views
+            try:
+                view_names = insp.get_view_names(schema=schema_name)
+                
+                def process_view(v_name):
+                    try:
+                        v_cols = [
+                            {
+                                "name": c["name"],
+                                "type": str(c["type"]),
+                                "nullable": c.get("nullable", True),
+                                "default": None,
+                                "primary_key": False,
+                                "samples": [],
+                                "date_range": None,
+                            }
+                            for c in insp.get_columns(v_name, schema=schema_name)
+                        ]
+                    except Exception:
+                        v_cols = []
+                    try:
+                        v_def = insp.get_view_definition(v_name, schema=schema_name)
+                    except Exception:
+                        v_def = None
+
+                    sch_str = schema_name or "main"
+                    view_obj = {
+                        "name": v_name,
+                        "qualified_name": f"{db_name}.{sch_str}.{v_name}",
+                        "catalog": db_name,
+                        "schema": sch_str,
+                        "object_type": "view",
+                        "columns": v_cols,
+                        "primary_key": [],
+                        "foreign_keys": [],
+                        "indexes": [],
+                        "constraints": [],
+                        "definition": v_def or f"CREATE VIEW {v_name} AS SELECT * FROM ...;",
+                    }
+                    return view_obj, v_cols
+                
+                with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+                    view_futures = {executor.submit(process_view, v_name): v_name for v_name in view_names}
+                    for future in concurrent.futures.as_completed(view_futures):
+                        try:
+                            view_obj, v_cols = future.result()
+                            views_list.append(view_obj)
+                            total_cols += len(v_cols)
+                        except Exception as e:
+                            logger.warning(f"Error processing view {view_futures[future]}: {e}")
+            except Exception:
+                pass
 
         # Build Readable LLM Schema Text
         lines = ["Database Schema:"]
@@ -471,50 +1016,65 @@ class SchemaService:
         schema_text = "\n".join(lines)
 
         # Build Hierarchical Schema Tree
-        table_children = [
-            {
-                "id": f"table-{t['name']}",
-                "kind": "table",
-                "name": t["name"],
-                "path": [db_name, "main", "Tables", t["name"]],
-                "meta": {
-                    "columns": len(t["columns"]),
-                    "indexes": len(t["indexes"]),
-                    "foreign_keys": len(t["foreign_keys"]),
-                },
-            }
-            for t in tables_list
-        ]
-
-        view_children = [
-            {
-                "id": f"view-{v['name']}",
-                "kind": "view",
-                "name": v["name"],
-                "path": [db_name, "main", "Views", v["name"]],
-                "meta": {
-                    "columns": len(v["columns"]),
-                },
-            }
-            for v in views_list
-        ]
-
         schema_folders = []
-        if table_children:
-            schema_folders.append({
-                "id": f"folder-tables-{db_name}",
-                "kind": "folder",
-                "name": "Tables",
-                "path": [db_name, "main", "Tables"],
-                "children": table_children,
-            })
-        if view_children:
-            schema_folders.append({
-                "id": f"folder-views-{db_name}",
-                "kind": "folder",
-                "name": "Views",
-                "path": [db_name, "main", "Views"],
-                "children": view_children,
+        
+        # Group by schema
+        schemas_present = set(t.get("schema", "main") for t in tables_list + views_list)
+        schema_tree_children = []
+        
+        for sch in sorted(list(schemas_present)):
+            sch_table_children = [
+                {
+                    "id": f"table-{sch}-{t['name']}",
+                    "kind": "table",
+                    "name": t["name"],
+                    "path": [db_name, sch, "Tables", t["name"]],
+                    "meta": {
+                        "columns": len(t["columns"]),
+                        "indexes": len(t["indexes"]),
+                        "foreign_keys": len(t["foreign_keys"]),
+                    },
+                }
+                for t in tables_list if t.get("schema") == sch
+            ]
+
+            sch_view_children = [
+                {
+                    "id": f"view-{sch}-{v['name']}",
+                    "kind": "view",
+                    "name": v["name"],
+                    "path": [db_name, sch, "Views", v["name"]],
+                    "meta": {
+                        "columns": len(v["columns"]),
+                    },
+                }
+                for v in views_list if v.get("schema") == sch
+            ]
+            
+            sch_folders = []
+            if sch_table_children:
+                sch_folders.append({
+                    "id": f"folder-tables-{db_name}-{sch}",
+                    "kind": "folder",
+                    "name": "Tables",
+                    "path": [db_name, sch, "Tables"],
+                    "children": sch_table_children,
+                })
+            if sch_view_children:
+                sch_folders.append({
+                    "id": f"folder-views-{db_name}-{sch}",
+                    "kind": "folder",
+                    "name": "Views",
+                    "path": [db_name, sch, "Views"],
+                    "children": sch_view_children,
+                })
+                
+            schema_tree_children.append({
+                "id": f"sch-{sch}-{db_name}",
+                "kind": "schema",
+                "name": sch,
+                "path": [db_name, sch],
+                "children": sch_folders,
             })
 
         schema_tree = [
@@ -523,19 +1083,20 @@ class SchemaService:
                 "kind": "catalog",
                 "name": db_name,
                 "path": [db_name],
-                "children": [
-                    {
-                        "id": f"sch-main-{db_name}",
-                        "kind": "schema",
-                        "name": "main",
-                        "path": [db_name, "main"],
-                        "children": schema_folders,
-                    }
-                ],
+                "children": schema_tree_children,
             }
         ]
 
         total_objects = len(tables_list) + len(views_list) + len(procedures_list) + len(collections_list)
+        if len(used_bulk_categories) == 4:
+            introspection_strategy = "bulk"
+        elif len(used_bulk_categories) > 0:
+            introspection_strategy = "mixed"
+        else:
+            introspection_strategy = "legacy"
+
+        t_total_intro_ms = (time.perf_counter() - t_intro_start) * 1000
+
         summary = {
             "catalogs": 1,
             "schemas": 1,
@@ -548,6 +1109,15 @@ class SchemaService:
             "foreign_keys": total_fks,
             "constraints": total_constraints,
             "objects": total_objects,
+            "introspection_strategy": introspection_strategy,
+            "introspection_timings": {
+                "schema_table_discovery_ms": round(t_tables_disc_total, 2),
+                "schema_bulk_columns_ms": round(t_bulk_cols_total, 2),
+                "schema_bulk_primary_keys_ms": round(t_bulk_pks_total, 2),
+                "schema_bulk_foreign_keys_ms": round(t_bulk_fks_total, 2),
+                "schema_bulk_indexes_ms": round(t_bulk_idxs_total, 2),
+                "schema_total_introspection_ms": round(t_total_intro_ms, 2),
+            }
         }
 
         explorer_data = {
@@ -737,4 +1307,8 @@ class SQLExecutor:
                 success=False,
                 error=str(e)
             ).error(f"SQL execution failed in {duration_ms:.2f}ms. Error: {e}")
+            try:
+                db.rollback()
+            except Exception:
+                pass
             raise RuntimeError(f"SQL execution failed: {e}") from e

@@ -8,31 +8,35 @@ from langchain_core.prompts import PromptTemplate
 from app.llm.prompts import INTENT_CLASSIFICATION_TEMPLATE, OFF_TOPIC_RESPONSE_TEMPLATE
 from app.services.sql_service import SchemaService
 from app.utils.text_processor import extract_json_text
+from app.config.settings import settings
 
 
 class IntentClassifier:
     """Classifies user intent (database vs off-topic vs schema) and handles off-topic replies."""
 
-    def __init__(self, fast_llm):
+    def __init__(self, fast_llm=None):
         self.schema_service = SchemaService()
         self.fast_llm = fast_llm
 
-        # Create chains using LCEL (prompt | llm)
-        self.intent_classification_chain = (
-            PromptTemplate(
-                input_variables=["table_names", "question", "conversation_history"],
-                template=INTENT_CLASSIFICATION_TEMPLATE
+        if self.fast_llm is not None:
+            self.intent_classification_chain = (
+                PromptTemplate(
+                    input_variables=["table_names", "question", "conversation_history"],
+                    template=INTENT_CLASSIFICATION_TEMPLATE
+                )
+                | self.fast_llm
             )
-            | self.fast_llm
-        )
 
-        self.off_topic_chain = (
-            PromptTemplate(
-                input_variables=["table_names", "question"],
-                template=OFF_TOPIC_RESPONSE_TEMPLATE
+            self.off_topic_chain = (
+                PromptTemplate(
+                    input_variables=["table_names", "question"],
+                    template=OFF_TOPIC_RESPONSE_TEMPLATE
+                )
+                | self.fast_llm
             )
-            | self.fast_llm
-        )
+        else:
+            self.intent_classification_chain = None
+            self.off_topic_chain = None
 
     def _quick_classify_intent(self, question: str) -> str | None:
         """Fast 0-token rule-based intent classifier to save LLM tokens and latency."""
@@ -53,28 +57,26 @@ class IntentClassifier:
         db_indicators = {
             "select", "count", "sum", "avg", "average", "top", "most", "total", "sales", "revenue",
             "list", "show", "get", "find", "which", "how many", "what is", "what are", "breakdown",
-            "customer", "invoice", "artist", "album", "track", "genre", "employee", "playlist",
-            "كم", "اعلى", "اجمالي", "عدد", "ماهو", "ماهي", "اريد", "عرض", "مجموع"
+            "highest", "lowest", "best", "worst", "all", "customers", "invoices", "orders", "users",
+            "كم", "كم عدد", "اعلى", "أعلى", "اجمالي", "إجمالي", "عدد", "ماهو", "ما هو", "ماهي", "ما هي",
+            "اريد", "أريد", "عرض", "مجموع", "اكبر", "أكبر", "اقل", "أقل", "افضل", "أفضل", "اسوأ", "أسوأ",
+            "هات", "طلع", "احسب", "من هم", "ماهم", "جميع", "كل", "بيانات"
         }
-        words = set(re.findall(r'\w+', q_lower))
+        words = set(re.findall(r'[\w\u0600-\u06FF]+', q_lower))
         
-        # We only force 'database' if we find an indicator AND we see some schema keyword 
-        # (or at least let the LLM decide if it's borderline)
-        # However, for 0-token heuristic to be safe, if we just see '?' we should NOT automatically route to DB.
         schema_overlap = False
         try:
-            schema = self.schema_service.get_schema()
-            schema_terms = set()
-            for t_name, info in schema.items():
-                schema_terms.update(re.findall(r'\w+', t_name.lower()))
-                for c in info.get("columns", []):
-                    schema_terms.update(re.findall(r'\w+', c["name"].lower()))
-            if words.intersection(schema_terms):
-                schema_overlap = True
+            db_ctx = self.schema_service.get_database_context()
+            if db_ctx and db_ctx.keyword_to_tables:
+                if words.intersection(db_ctx.keyword_to_tables.keys()):
+                    schema_overlap = True
+            elif db_ctx and db_ctx.table_names_set:
+                if words.intersection({t.lower() for t in db_ctx.table_names_set}):
+                    schema_overlap = True
         except Exception:
             pass
 
-        if words.intersection(db_indicators) and schema_overlap:
+        if words.intersection(db_indicators) or schema_overlap:
             return "database"
             
         # If we have a question mark but no clear schema match, let the LLM decide.
@@ -105,34 +107,45 @@ class IntentClassifier:
             return {"intent": "database", "reasoning": f"Fallback due to error: {e}"}
 
     async def generate_off_topic_response(self, question: str) -> str:
-        """Generate a polite off-topic refusal with suggestions."""
-        try:
-            table_summary = self.get_table_summary()
-            response = await self.off_topic_chain.ainvoke({
-                "table_names": table_summary,
-                "question": question
-            })
-            return response.content.strip()
-        except Exception as e:
-            logger.warning("Failed to generate off-topic response, using generic fallback. Error: %s", e)
+        """Generate a polite off-topic refusal deterministically without extra LLM cost."""
+        is_arabic = any("\u0600" <= c <= "\u06FF" for c in question)
+        if is_arabic:
             return (
-                "I specialize in database analysis and can help you query data, "
-                "analyze trends, generate reports, explain the schema, or write SQL queries. "
-                "Please ask a question related to the connected database."
+                "أنا مساعد متخصص في تحليل قواعد البيانات. يمكنني مساعدتك في الاستعلام عن البيانات، "
+                "تحليل الاتجاهات، إنشاء التقارير، وتوليد استعلامات SQL. يرجى طرح سؤال يتعلق بقاعدة البيانات المتصلة."
             )
+        return (
+            "I specialize in database analysis and can help you query data, "
+            "analyze trends, generate reports, explain the schema, or write SQL queries. "
+            "Please ask a question related to the connected database."
+        )
 
     def get_table_summary(self) -> str:
-        """Return a compact summary of tables and key columns for LLM context."""
+        """Return a compact summary of tables and key columns for LLM context.
+
+        For large schemas (> settings.llm_prompt_max_tables), we show only
+        table names (no columns) to stay within LLM payload limits. Intent
+        classification only needs table names to decide database vs off_topic.
+        """
         try:
             schema = self.schema_service.get_schema()
-            summary_parts = []
-            for table_name, info in schema.items():
-                cols = [col["name"] for col in info.get("columns", [])[:5]]
-                cols_str = ", ".join(cols)
-                if len(info.get("columns", [])) > 5:
-                    cols_str += ", ..."
-                summary_parts.append(f"- {table_name} ({cols_str})")
-            return "\n".join(summary_parts)
+            max_tables = settings.llm_prompt_max_tables
+
+            if len(schema) <= max_tables:
+                # Small schema: original behavior with columns
+                summary_parts = []
+                for table_name, info in schema.items():
+                    cols = [col["name"] for col in info.get("columns", [])[:5]]
+                    cols_str = ", ".join(cols)
+                    if len(info.get("columns", [])) > 5:
+                        cols_str += ", ..."
+                    summary_parts.append(f"- {table_name} ({cols_str})")
+                return "\n".join(summary_parts)
+
+            # Large schema: table names only (compact), capped
+            table_names = sorted(schema.keys())[:max_tables]
+            header = f"[{len(table_names)} of {len(schema)} tables shown]"
+            return header + "\n" + "\n".join(f"- {t}" for t in table_names)
         except Exception as e:
             logger.warning("Failed to get schema table summary: %s", e)
             return "No tables available"

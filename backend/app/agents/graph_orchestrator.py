@@ -1,5 +1,10 @@
 """LangGraph Agentic Orchestrator (Rebuild Plan — Phase 2).
 
+ARCHITECTURAL NOTE:
+This module provides an experimental, feature-flagged (`use_langgraph_orchestrator`) 
+execution path. It is used for A/B testing graph-based execution against the stable 
+linear pipeline found in `app.agents.analyst_agent`. 
+
 Replaces the linear if/else step-by-step method body of `AnalystAgent.ask`
 with a `StateGraph` — but does NOT reimplement any business logic. Every
 node here is a thin wrapper around the exact same components/methods the
@@ -37,11 +42,12 @@ from app.utils.validator import validate_sql
 from app.utils.text_processor import build_result_summary, COMPLEX_ANALYSIS_TYPES
 from app.semantic.synonyms import resolve_synonyms
 from app.utils.cost_router import should_use_self_consistency, choose_sql_generation_tier
-from app.core.config import settings
+from app.config.settings import settings
 from app.security.cost_guard import check_query_cost
 from app.security.data_masking import mask_sensitive_columns
+from app.semantic.models import ExecutionRoute
 
-MAX_FIX_ATTEMPTS = 2
+MAX_FIX_ATTEMPTS = getattr(settings, "max_fix_attempts", 1)
 MAX_ROWS_FOR_LLM = 200
 
 
@@ -82,7 +88,7 @@ def _base_result(question: str) -> dict:
         "attempted_sql": "",
         "error_type": None,
         "suggestions": [],
-        "intent": "database",
+        "intent": "data_query",
     }
 
 
@@ -97,63 +103,121 @@ def build_analyst_graph(agent) -> "StateGraph":
     """
 
     async def understand_node(state: AgentState) -> dict:
+        import time
         question = state["question"]
         conversation_history = state["conversation_history"]
-        if state.get("retried"):
-            # One bounded extra hint so the reasoning layer (LLM path) or the
-            # regex fallback gets a chance to reconsider - this is the
-            # "reflect" half of the loop. Never repeated more than once.
-            conversation_history = (
-                f"{conversation_history}\n"
-                f"[Previous attempt failed: {state.get('retry_hint', '')}. "
-                f"Re-examine which tables/columns are actually relevant.]"
-            )
+        result = state.get("result") or _base_result(question)
+        if "timings_ms" not in result:
+            result["timings_ms"] = {}
 
-        full_schema = agent.schema_service.get_schema()
-        query_understanding = await agent.query_understander.understand(
-            question, full_schema, conversation_history
-        )
-        logger.debug(
-            "Query understanding source=%s analysis_type=%s confidence=%.2f",
-            query_understanding.source, query_understanding.analysis_type, query_understanding.confidence,
-        )
+        # 1. DB Context & Schema Lookup (from in-RAM DatabaseContext)
+        db_ctx = agent.schema_service.get_database_context()
+        full_schema = db_ctx.schema
+        catalog = db_ctx.catalog
 
-        catalog = None
-        try:
-            catalog = agent.catalog_builder.get_or_build()
-            query_understanding = resolve_synonyms(question, catalog, query_understanding)
-        except Exception as catalog_err:
-            logger.debug("Schema catalog lookup skipped: %s", catalog_err)
+        # 2. Single-pass Unified QuerySpecBuilder (< 0.15ms, 0 LLM calls)
+        t_und_start = time.perf_counter()
+        query_spec = agent.query_spec_builder.build_spec(
+            question=question,
+            schema=full_schema,
+            conversation_history=conversation_history,
+            catalog=catalog,
+        )
+        und_ms = (time.perf_counter() - t_und_start) * 1000
+        result["timings_ms"]["query_understanding_ms"] = round(und_ms, 2)
+        result["intent"] = query_spec.intent.value
+
+        # Route first: conversation/general, schema/metadata, or real data query.
+        if query_spec.route == ExecutionRoute.CONVERSATION:
+            reply = query_spec.off_topic_response
+            if not reply or query_spec.route_confidence < 0.9:
+                reply = await agent.report_service.generate_conversational_response(
+                    question=question,
+                    conversation_history=conversation_history,
+                    database_context="A database connection exists, but this request was classified as conversational/general.",
+                )
+            result["intent"] = "conversation"
+            result["report"] = reply
+            result["success"] = True
+            state_result = {
+                "result": result, "full_schema": full_schema, "catalog": catalog,
+                "query_understanding": query_spec, "analysis_type": query_spec.analysis_type
+            }
+            return state_result
+
+        if query_spec.route == ExecutionRoute.SCHEMA:
+            schema_resp = agent.schema_explorer.handle_schema_exploration(question)
+            if schema_resp:
+                schema_resp["intent"] = "schema"
+                state_result = {
+                    "result": schema_resp, "full_schema": full_schema, "catalog": catalog,
+                    "query_understanding": query_spec, "analysis_type": query_spec.analysis_type
+                }
+                return state_result
+
+        result["intent"] = "data_query"
 
         return {
             "full_schema": full_schema,
-            "query_understanding": query_understanding,
+            "query_understanding": query_spec,
             "catalog": catalog,
-            "analysis_type": query_understanding.analysis_type,
+            "analysis_type": query_spec.analysis_type,
+            "result": result,
         }
+
+    def route_after_understand(state: AgentState) -> str:
+        if state["result"].get("report"):
+            return END
+        return "ground_schema"
 
     async def ground_schema_node(state: AgentState) -> dict:
         query_understanding = state["query_understanding"]
-        grounded_schema = agent.schema_grounding_engine.build_grounded_schema(
+        grounded_schema = await agent.schema_grounding_engine.build_grounded_schema_async(
             schema=state["full_schema"],
             query_understanding=query_understanding,
             question=state["question"],
             analysis_type=query_understanding.analysis_type,
             catalog=state.get("catalog"),
         )
-        return {"grounded_schema": grounded_schema, "schema_text": grounded_schema.schema_text}
+        full_schema = state["full_schema"]
+        total_tables = len(full_schema)
+        total_columns = sum(len(info.get("columns", [])) for info in full_schema.values())
+        grounded_tables = len(grounded_schema.selected_tables)
+        grounded_columns = sum(len(cols) for cols in grounded_schema.selected_columns.values())
+        schema_text_len = len(grounded_schema.schema_text)
+
+        schema_metrics = {
+            "total_tables": total_tables,
+            "total_columns": total_columns,
+            "retrieved_tables": len(grounded_schema.retrieved_seed_tables),
+            "grounded_tables": grounded_tables,
+            "grounded_columns": grounded_columns,
+            "estimated_schema_chars": schema_text_len,
+            "estimated_token_count": schema_text_len // 4,
+        }
+        result = state.get("result", {})
+        result["schema_metrics"] = schema_metrics
+        if "timings_ms" not in result:
+            result["timings_ms"] = {}
+        for k, v in grounded_schema.timings_ms.items():
+            result["timings_ms"][k] = round(v, 2)
+
+        return {"grounded_schema": grounded_schema, "schema_text": grounded_schema.schema_text, "result": result}
 
     def route_after_ground(state: AgentState) -> str:
-        query_understanding = state["query_understanding"]
-        analysis_type = query_understanding.analysis_type
-        if analysis_type in COMPLEX_ANALYSIS_TYPES or query_understanding.requires_multi_step:
-            return "planner"
+        # Single-SQL First: Always attempt single-pass SQL generation first (1 LLM call)
         return "generate_sql"
 
-    async def planner_node(state: AgentState) -> dict:
+    async def planner_fallback_node(state: AgentState) -> dict:
+        """
+        Planner invoked ONLY as a fallback when single-SQL execution fails after auto-repair.
+        Reuses existing grounded schema without restarting the pipeline.
+        """
+        logger.info("Single-SQL execution failed, activating Planner multi-step fallback.")
         question = state["question"]
         schema_text = state["schema_text"]
         conversation_history = state["conversation_history"]
+
         plan_steps = await agent.planner.decompose_question(question, schema_text, conversation_history)
         if plan_steps and len(plan_steps) >= 2:
             plan_result = await agent.planner.execute_plan(
@@ -166,32 +230,51 @@ def build_analyst_graph(agent) -> "StateGraph":
                 report_service=agent.report_service,
                 memory=state["memory"],
             )
-            if plan_result:
-                return {"result": plan_result, "plan_completed": True}
-        # Plan wasn't actually multi-step after all - fall through to the
-        # normal single-step path exactly like the linear pipeline does.
-        return {"plan_completed": False}
+            if plan_result and plan_result.get("success"):
+                return {"result": plan_result, "plan_completed": True, "retried": True}
 
-    def route_after_planner(state: AgentState) -> str:
-        return END if state.get("plan_completed") else "generate_sql"
+        return {"plan_completed": False, "retried": True}
+
+    def route_after_planner_fallback(state: AgentState) -> str:
+        return END if state.get("plan_completed") else "report_exec_error"
 
     async def generate_sql_node(state: AgentState) -> dict:
+        import time
         question = state["question"]
         schema_text = state["schema_text"]
         analysis_type = state["analysis_type"]
-        use_voting = should_use_self_consistency(question, analysis_type)
-        use_fast = choose_sql_generation_tier(question, analysis_type, state["query_understanding"].confidence)
+        qu = state.get("query_understanding")
+        grounded_tables_count = len(state["grounded_schema"].selected_tables) if state.get("grounded_schema") else 1
+        has_grouping = len(qu.dimensions) > 0 if qu else False
+
+        schema_token_estimate = len(schema_text) // 4 if schema_text else 0
+        use_voting = should_use_self_consistency(
+            question, analysis_type, schema_token_estimate=schema_token_estimate
+        )
+
+        use_fast = choose_sql_generation_tier(
+            question, analysis_type, qu.confidence if qu else 1.0,
+            grounded_table_count=grounded_tables_count, has_grouping=has_grouping
+        )
+
+        t0 = time.perf_counter()
         sql = await agent.sql_generator.generate_sql(
             question, schema_text, state["db"], state["conversation_history"],
             use_self_consistency=use_voting, use_fast_model=(use_fast == "fast"),
         )
-        result = _base_result(question)
+        gen_ms = (time.perf_counter() - t0) * 1000
+
+        result = state.get("result") or _base_result(question)
+        if "timings_ms" not in result:
+            result["timings_ms"] = {}
+        result["timings_ms"]["sql_generation_ms"] = round(gen_ms, 2)
         result["sql"] = sql
         result["analysis_type"] = analysis_type.value if hasattr(analysis_type, "value") else str(analysis_type)
 
         reason = agent.sql_generator.unanswerable_reason(sql)
         if reason:
             logger.info("Question flagged UNANSWERABLE: %s", reason)
+            result["sql"] = ""
             result["report"] = await agent.report_service.generate_no_answer_response(
                 question=question,
                 situation="This question cannot be answered using the current database schema.",
@@ -200,7 +283,7 @@ def build_analyst_graph(agent) -> "StateGraph":
             )
             result["success"] = True
             state["memory"].add_turn(question, sql, f"Unanswerable: {reason}", "database")
-            return {"sql": sql, "result": result}
+            return {"sql": "", "result": result}
 
         return {"sql": sql, "result": result}
 
@@ -208,9 +291,16 @@ def build_analyst_graph(agent) -> "StateGraph":
         return END if state["result"].get("report") else "validate_sql"
 
     async def validate_sql_node(state: AgentState) -> dict:
+        import time
         sql = state["sql"]
         result = state["result"]
+        t0 = time.perf_counter()
         validation = validate_sql(sql)
+        val_ms = (time.perf_counter() - t0) * 1000
+        if "timings_ms" not in result:
+            result["timings_ms"] = {}
+        result["timings_ms"]["sql_validation_ms"] = round(val_ms, 2)
+
         if not validation["valid"]:
             result["attempted_sql"] = sql
             result["error_type"] = validation.get("query_type", "safety")
@@ -250,33 +340,52 @@ def build_analyst_graph(agent) -> "StateGraph":
         return END if state["result"].get("report") else "execute"
 
     async def execute_node(state: AgentState) -> dict:
+        import time
+        t0 = time.perf_counter()
+        gen_meta = getattr(agent.sql_generator, "last_generation_meta", {})
+        initial_tier = gen_meta.get("sql_generation_tier", "primary")
+        sql_cache_hit = gen_meta.get("sql_cache_hit", False)
+
         rows, final_sql, exec_error, error_type, suggestions = await agent.sql_generator.execute_with_repair(
             question=state["question"], schema_text=state["schema_text"], sql=state["sql"],
             db=state["db"], max_fix_attempts=MAX_FIX_ATTEMPTS,
+            initial_tier=initial_tier, sql_cache_hit=sql_cache_hit,
         )
+        exec_ms = (time.perf_counter() - t0) * 1000
+        exec_meta = getattr(agent.sql_generator, "last_execution_meta", {})
+
+        result = state.get("result", {})
+        if "timings_ms" not in result:
+            result["timings_ms"] = {}
+        result["timings_ms"]["sql_execution_ms"] = round(exec_ms, 2)
+
+        for k in ("sql_generation_tier", "sql_final_tier", "sql_repair_attempts", "sql_repair_success", "sql_cache_hit"):
+            val = exec_meta.get(k)
+            result[k] = val
+
+        result["timings_ms"]["sql_repair_attempts"] = float(exec_meta.get("sql_repair_attempts", 0))
+        result["timings_ms"]["sql_cache_hit"] = 1.0 if exec_meta.get("sql_cache_hit") else 0.0
+        result["timings_ms"]["sql_repair_success"] = 1.0 if exec_meta.get("sql_repair_success") else 0.0
+
         return {
             "rows": rows, "final_sql": final_sql, "exec_error": exec_error,
-            "error_type": error_type, "suggestions": suggestions,
+            "error_type": error_type, "suggestions": suggestions, "result": result,
         }
 
     def route_after_execute(state: AgentState) -> str:
         if state.get("exec_error") is not None:
-            # Reflect-and-retry: only once, and only if we haven't already.
+            # Fall back directly to Planner without restarting the whole pipeline!
             if not state.get("retried"):
-                return "reflect_retry"
+                return "planner_fallback"
             return "report_exec_error"
         return "mask_and_analyze"
 
-    async def reflect_retry_node(state: AgentState) -> dict:
-        logger.info("Execution failed, retrying once with a reflection hint: %s", state.get("exec_error"))
-        return {"retried": True, "retry_hint": state.get("exec_error", "")}
-
     async def report_exec_error_node(state: AgentState) -> dict:
         result = state["result"]
-        exec_error = state["exec_error"]
+        exec_error = state.get("exec_error", "Execution error")
         suggestions = state.get("suggestions") or []
-        result["attempted_sql"] = state["final_sql"]
-        result["error_type"] = state["error_type"]
+        result["attempted_sql"] = state.get("final_sql", "")
+        result["error_type"] = state.get("error_type")
         result["error"] = exec_error
         result["suggestions"] = suggestions
         if suggestions:
@@ -293,6 +402,7 @@ def build_analyst_graph(agent) -> "StateGraph":
         return {"result": result}
 
     async def mask_and_analyze_node(state: AgentState) -> dict:
+        import time
         result = state["result"]
         rows = state["rows"]
         result["sql"] = state["final_sql"]
@@ -309,12 +419,17 @@ def build_analyst_graph(agent) -> "StateGraph":
 
         analytics_result = None
         insight_result = None
+        t0 = time.perf_counter()
         if rows:
             try:
                 analytics_result = agent.analytics_engine.analyze(rows)
                 insight_result = agent.insight_engine.generate_insights(analytics_result)
             except Exception as analytics_err:
                 logger.warning("Analytics/Insight pipeline execution failed gracefully: %s", analytics_err)
+        an_ms = (time.perf_counter() - t0) * 1000
+        if "timings_ms" not in result:
+            result["timings_ms"] = {}
+        result["timings_ms"]["analytics_ms"] = round(an_ms, 2)
 
         return {"rows": rows, "result": result, "analytics_result": analytics_result, "insight_result": insight_result}
 
@@ -334,6 +449,7 @@ def build_analyst_graph(agent) -> "StateGraph":
         return {"result": result}
 
     async def report_node(state: AgentState) -> dict:
+        import time
         result = state["result"]
         rows = state["rows"]
         question = state["question"]
@@ -343,12 +459,24 @@ def build_analyst_graph(agent) -> "StateGraph":
         truncated = len(rows) > MAX_ROWS_FOR_LLM
         rows_for_llm = rows[:MAX_ROWS_FOR_LLM] if truncated else rows
 
-        report = await agent.report_service.generate_report(
-            question, final_sql, rows_for_llm,
+        t0 = time.perf_counter()
+        report = await agent.report_service.generate_conversational_data_response(
+            question=question,
+            sql=final_sql,
+            results=rows_for_llm,
+            conversation_history=conversation_history,
             analytics_result=state.get("analytics_result"),
             insight_result=state.get("insight_result"),
-            require_verification=(analysis_type in COMPLEX_ANALYSIS_TYPES),
         )
+        chart = await agent.report_service.suggest_chart(
+            question=question,
+            sql=final_sql,
+            results=rows_for_llm,
+            analytics_result=state.get("analytics_result"),
+            insight_result=state.get("insight_result"),
+        )
+        rep_ms = (time.perf_counter() - t0) * 1000
+
         if truncated:
             if any("\u0600" <= c <= "\u06FF" for c in question):
                 report += (
@@ -361,13 +489,12 @@ def build_analyst_graph(agent) -> "StateGraph":
                     f"of {len(rows)} returned rows.*"
                 )
         result["report"] = report
-
-        chart = await agent.report_service.suggest_chart(
-            question, final_sql, rows_for_llm,
-            analytics_result=state.get("analytics_result"),
-            insight_result=state.get("insight_result"),
-        )
         result["chart_suggestion"] = chart
+
+        if "timings_ms" not in result:
+            result["timings_ms"] = {}
+        result["timings_ms"]["report_generation_ms"] = round(rep_ms, 2)
+        result["timings_ms"]["chart_suggestion_ms"] = 0.0
 
         state["memory"].add_turn(question, final_sql, build_result_summary(rows), "database")
         result["success"] = True
@@ -376,29 +503,27 @@ def build_analyst_graph(agent) -> "StateGraph":
     graph = StateGraph(AgentState)
     graph.add_node("understand", understand_node)
     graph.add_node("ground_schema", ground_schema_node)
-    graph.add_node("planner", planner_node)
     graph.add_node("generate_sql", generate_sql_node)
     graph.add_node("validate_sql", validate_sql_node)
     graph.add_node("cost_guard", cost_guard_node)
     graph.add_node("execute", execute_node)
-    graph.add_node("reflect_retry", reflect_retry_node)
+    graph.add_node("planner_fallback", planner_fallback_node)
     graph.add_node("report_exec_error", report_exec_error_node)
     graph.add_node("mask_and_analyze", mask_and_analyze_node)
     graph.add_node("no_rows_report", no_rows_report_node)
     graph.add_node("report", report_node)
 
     graph.set_entry_point("understand")
-    graph.add_edge("understand", "ground_schema")
-    graph.add_conditional_edges("ground_schema", route_after_ground, {"planner": "planner", "generate_sql": "generate_sql"})
-    graph.add_conditional_edges("planner", route_after_planner, {END: END, "generate_sql": "generate_sql"})
+    graph.add_conditional_edges("understand", route_after_understand, {END: END, "ground_schema": "ground_schema"})
+    graph.add_edge("ground_schema", "generate_sql")
     graph.add_conditional_edges("generate_sql", route_after_generate, {END: END, "validate_sql": "validate_sql"})
     graph.add_conditional_edges("validate_sql", route_after_validate, {END: END, "cost_guard": "cost_guard"})
     graph.add_conditional_edges("cost_guard", route_after_cost_guard, {END: END, "execute": "execute"})
     graph.add_conditional_edges(
         "execute", route_after_execute,
-        {"reflect_retry": "reflect_retry", "report_exec_error": "report_exec_error", "mask_and_analyze": "mask_and_analyze"},
+        {"planner_fallback": "planner_fallback", "report_exec_error": "report_exec_error", "mask_and_analyze": "mask_and_analyze"},
     )
-    graph.add_edge("reflect_retry", "understand")
+    graph.add_conditional_edges("planner_fallback", route_after_planner_fallback, {END: END, "report_exec_error": "report_exec_error"})
     graph.add_edge("report_exec_error", END)
     graph.add_conditional_edges("mask_and_analyze", route_after_analyze, {"no_rows_report": "no_rows_report", "report": "report"})
     graph.add_edge("no_rows_report", END)
@@ -409,6 +534,11 @@ def build_analyst_graph(agent) -> "StateGraph":
 
 async def run_graph_ask(agent, question: str, db, memory, conversation_history: str) -> dict:
     """Entry point used by AnalystAgent.ask() when USE_LANGGRAPH_ORCHESTRATOR=true."""
+    import time
+    from app.utils.token_tracker import get_llm_trace, reset_llm_trace
+    reset_llm_trace()
+
+    req_start = time.perf_counter()
     compiled = agent.get_or_build_graph()
     initial_state: AgentState = {
         "question": question,
@@ -417,8 +547,13 @@ async def run_graph_ask(agent, question: str, db, memory, conversation_history: 
         "conversation_history": conversation_history,
         "result": _base_result(question),
     }
-    # Recursion limit accounts for the single bounded reflect-retry loop
-    # (understand -> ... -> execute -> reflect_retry -> understand -> ...)
-    # plus normal step count; generous but still finite/safe.
     final_state = await compiled.ainvoke(initial_state, config={"recursion_limit": 40})
-    return final_state["result"]
+    result = final_state.get("result", {})
+    if "timings_ms" not in result:
+        result["timings_ms"] = {}
+    result["timings_ms"]["total_request_time_ms"] = round((time.perf_counter() - req_start) * 1000, 2)
+    
+    trace = get_llm_trace()
+    result["llm_trace"] = trace
+    result["llm_call_count"] = len(trace)
+    return result

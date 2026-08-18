@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from loguru import logger
 
-from app.core.config import settings
+from app.config.settings import settings
 from app.services.sql_service import SchemaService
 from app.schema_catalog.catalog_builder import CatalogBuilder
 from app.schema_catalog.glossary import build_glossary
@@ -45,6 +45,10 @@ async def onboard_database(schema_service: SchemaService) -> None:
         catalog_builder = CatalogBuilder(schema_service)
         catalog = catalog_builder.get_or_build()
         logger.info("Onboarding %s: structural profile ready (%d tables).", db_name, len(catalog.tables))
+
+        # 1. Background profiling (row counts, values)
+        await catalog_builder.build_async(catalog.fingerprint)
+        catalog = catalog_builder.get_or_build()
 
         if not catalog.glossary_enriched:
             llm_client = get_llm_client()
@@ -68,6 +72,15 @@ async def onboard_database(schema_service: SchemaService) -> None:
                 )
         elif catalog.embeddings_built:
             logger.debug("Onboarding %s: embeddings already computed, skipping.", db_name)
+
+        # Warm DatabaseContext in RAM with all pre-built indexes (join graph, TF-IDF, glossary, inverted index)
+        try:
+            db_ctx = schema_service.get_database_context()
+            db_ctx.catalog = catalog
+            db_ctx.ensure_indexes(force=True)
+            logger.info("Onboarding %s: RAM DatabaseContext pre-indexed and ready.", db_name)
+        except Exception as e:
+            logger.debug("Failed to warm DatabaseContext indexes: %s", e)
 
     except Exception as e:
         # Onboarding is pure enrichment. Any failure here must never surface

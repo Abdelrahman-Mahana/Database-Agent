@@ -116,32 +116,20 @@ Database-Agent-AI/
 │   ├── app/
 │   │   ├── main.py                  # FastAPI entry point, DI container, middleware
 │   │   ├── agents/                  # AnalystAgent pipeline: intent → plan → SQL → repair
-│   │   ├── ai_reasoning/            # LLM reasoning/explanation/confidence engines
-│   │   ├── analytics/               # Deterministic stats & insight engines
-│   │   ├── api/                     # One router module per REST resource (20+)
-│   │   ├── config/ & core/          # Settings, DI container, structured logging
-│   │   ├── context_builder/         # Prompt-context assembly & ranking
-│   │   ├── conversation/            # Session memory service
+│   │   ├── api/                     # One router module per REST resource
+│   │   ├── config/                  # Configuration via pydantic-settings
 │   │   ├── database/                # SQLAlchemy engine/session, seed helpers
-│   │   ├── dialect/                 # Cross-dialect SQL transpilation
 │   │   ├── evaluation/              # Request scoring framework (see above)
-│   │   ├── execution/               # Safe query execution
 │   │   ├── llm/                     # Provider clients (OpenAI/OpenRouter/Groq/Ollama) & prompts
-│   │   ├── logical_query/           # Logical query IR
-│   │   ├── orchestrator/            # LangGraph-based orchestration (feature-flagged)
-│   │   ├── planning/                # Plan-and-execute decomposition
-│   │   ├── plugins/                 # Plugin discovery system
-│   │   ├── query_understanding/     # NL question parsing (entities/metrics/intent)
-│   │   ├── result_processing/       # Result shaping & chart suggestion
 │   │   ├── schema_catalog/          # Cached schema catalogs per connected DB
 │   │   ├── schema_grounding/        # Prunes full schema to question-relevant subset
 │   │   ├── schemas/                 # Pydantic request/response models
 │   │   ├── security/                # Cost guard & data masking
-│   │   ├── semantic/ & semantic_analysis/  # Deterministic question/column understanding
+│   │   ├── semantic/                # Deterministic question/column understanding
 │   │   ├── services/                # Domain services (memory, reports, SQL, onboarding)
-│   │   ├── sql/, sql_renderer/, sql_validation/  # SQL build → render → AST-validate pipeline
-│   │   ├── telemetry/                # Structured logging setup
-│   │   └── utils/                    # Caching, cost routing, token tracking, validators
+│   │   ├── sql/                     # SQL build & Auto-repair pipeline
+│   │   ├── telemetry/               # Structured logging setup
+│   │   └── utils/                   # Caching, cost routing, token tracking, validators
 │   ├── data/schema_catalog/         # Cached per-database schema catalogs (generated)
 │   ├── eval/                        # Offline golden-dataset evaluation scripts
 │   ├── scripts/                     # Manual dev utilities (not part of pytest)
@@ -149,7 +137,7 @@ Database-Agent-AI/
 │   ├── chinook.db                   # Packaged demo SQLite database (Chinook music store)
 │   ├── .env.example                 # Copy to backend/.env and fill in
 │   ├── Dockerfile / docker-compose.yml / railway.json
-│   └── requirements.txt
+│   └── pyproject.toml               # Python package config (uv)
 │
 └── frontend/                    # Next.js dashboard
     ├── src/
@@ -166,7 +154,7 @@ Database-Agent-AI/
 
 | Layer | Technology |
 |---|---|
-| Backend framework | FastAPI, dependency-injector (DI container), Uvicorn |
+| Backend framework | FastAPI, Uvicorn, pydantic-settings |
 | Agent / LLM orchestration | LangChain, LangGraph (optional graph orchestrator) |
 | LLM providers | OpenAI, OpenRouter, Groq, local Ollama |
 | SQL safety | sqlglot (AST validation & dialect transpilation), sqlparse |
@@ -174,14 +162,14 @@ Database-Agent-AI/
 | Logging | structlog, loguru |
 | Testing | pytest, pytest-asyncio |
 | Frontend | Next.js 16, React, TypeScript, Tailwind, shadcn/ui, TanStack Query, Zustand, Recharts, Framer Motion |
-| Packaging / deploy | Docker, Docker Compose, Railway |
+| Packaging / deploy | Docker, Docker Compose, Railway, uv |
 
 ---
 
 ## Getting Started
 
 ### Prerequisites
-- Python 3.12+ and `pip` (or `uv`)
+- Python 3.12+ and `uv` (recommended) or `pip`
 - Node.js 18+ and `npm`
 - Docker & Docker Compose (optional, recommended)
 - An API key for at least one LLM provider (OpenAI, OpenRouter, or Groq), or a local Ollama install
@@ -204,10 +192,9 @@ docker compose up --build
 ```bash
 cd backend
 cp .env.example .env        # then edit .env
-pip install -r requirements.txt
+uv sync                     # Install dependencies natively using uv
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
-(or, if you use `uv`: `make install && make run`, see `backend/Makefile`.)
 
 **Frontend**
 ```bash
@@ -251,11 +238,10 @@ The full interactive reference is always available at `/docs` (Swagger) once the
 | `GET /chat/history` / `DELETE /chat/history` | Session conversation history |
 | `POST /connect/url` / `POST /connect/upload` | Connect a database |
 | `GET /schema` | Full schema tree of the active database |
-| `GET /database/*`, `/database/profile/*`, `/database/intelligence/*` | Discovery & profiling of the connected database |
 | `GET /evaluation/history`, `GET /evaluation/stats` | Per-request quality/confidence scores and aggregates |
 | `GET /stats`, `GET /health` | Usage/cost dashboard and health check |
 
-Other routers (`/query`, `/planning`, `/logical-query`, `/dialect`, `/sql`, `/sql_validation`, `/execution`, `/results`, `/semantic-analysis`, `/context`, `/ai`, `/conversation`, `/agent`, `/memory`) expose the individual pipeline stages directly — useful for debugging or building alternative frontends against the same building blocks.
+*(Note: Ghost architecture files and mock endpoints from previous phases have been completely excised to maintain a clean, active codebase!)*
 
 ---
 
@@ -278,6 +264,7 @@ Both `backend/` and `frontend/` include `railway.json` for one-service-per-app d
 
 ## Security Notes
 
+- **Single-User Local Tool:** This application is designed as a **single-user local tool** for database exploration. The `X-Session-Id` header is used for context separation (e.g., keeping multiple browser tabs isolated) and is **NOT** a secure authentication token. Do not deploy this application on the public internet as a multi-tenant service without implementing proper authentication (e.g., JWT, signed cookies).
 - `backend/.env` and `backend/connection_profiles.json` (encrypted DB connection profiles) are git-ignored — never commit real credentials. A `connection_profiles.json` containing live encrypted profiles was found in this repo during cleanup and has been removed; rotate any credentials that were stored there before this point.
 - `ENABLE_DATA_MASKING` and `ENABLE_COST_GUARD` are on by default — keep them enabled in any environment where the agent has access to a real production database.
 

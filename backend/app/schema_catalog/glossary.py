@@ -78,6 +78,8 @@ def _extract_json(raw: str) -> Optional[dict]:
     return None
 
 
+import asyncio
+
 async def build_glossary(catalog: SchemaCatalog, llm_client) -> dict[str, Any]:
     """Generate the business glossary for an entire catalog.
 
@@ -87,41 +89,55 @@ async def build_glossary(catalog: SchemaCatalog, llm_client) -> dict[str, Any]:
 
     Returns a merged glossary dict ready for CatalogBuilder.merge_glossary().
     Batches large schemas so no single call blows the context window.
+    Runs batches concurrently with a rate limit.
     """
     table_names = list(catalog.tables.keys())
     merged: dict[str, Any] = {"tables": {}, "columns": {}}
+    
+    # Allow 5 concurrent requests to prevent LLM rate limiting while speeding up by 5x
+    semaphore = asyncio.Semaphore(5)
 
+    async def process_batch(batch: list[str]):
+        async with semaphore:
+            schema_block = _build_schema_block(catalog, batch)
+            prompt = GLOSSARY_PROMPT_TEMPLATE.format(schema_block=schema_block)
+
+            try:
+                raw = await llm_client.generate(prompt, temperature=0.0)
+            except Exception as e:
+                logger.warning("Glossary enrichment call failed for batch starting at %s: %s", batch[0] if batch else "?", e)
+                return
+
+            parsed = _extract_json(raw)
+            if not parsed:
+                logger.warning("Glossary enrichment returned unparsable JSON for batch %s", batch)
+                return
+
+            # Note: dictionary update is thread-safe inside the asyncio event loop since
+            # context switches only happen at await boundaries.
+            for tname, meta in (parsed.get("tables") or {}).items():
+                if tname in catalog.tables and isinstance(meta, dict):
+                    merged["tables"][tname] = {
+                        "description": str(meta.get("description", ""))[:300],
+                        "synonyms": [str(s) for s in (meta.get("synonyms") or [])][:5],
+                    }
+            for key, meta in (parsed.get("columns") or {}).items():
+                if isinstance(meta, dict) and "." in key:
+                    merged["columns"][key] = {
+                        "description": str(meta.get("description", ""))[:300],
+                        "synonyms": [str(s) for s in (meta.get("synonyms") or [])][:5],
+                    }
+
+    tasks = []
     for i in range(0, len(table_names), BATCH_SIZE):
         batch = table_names[i:i + BATCH_SIZE]
-        schema_block = _build_schema_block(catalog, batch)
-        prompt = GLOSSARY_PROMPT_TEMPLATE.format(schema_block=schema_block)
+        tasks.append(process_batch(batch))
 
-        try:
-            raw = await llm_client.generate(prompt, temperature=0.0)
-        except Exception as e:
-            logger.warning("Glossary enrichment call failed for batch starting at %s: %s", batch[0] if batch else "?", e)
-            continue
-
-        parsed = _extract_json(raw)
-        if not parsed:
-            logger.warning("Glossary enrichment returned unparsable JSON for batch %s", batch)
-            continue
-
-        for tname, meta in (parsed.get("tables") or {}).items():
-            if tname in catalog.tables and isinstance(meta, dict):
-                merged["tables"][tname] = {
-                    "description": str(meta.get("description", ""))[:300],
-                    "synonyms": [str(s) for s in (meta.get("synonyms") or [])][:5],
-                }
-        for key, meta in (parsed.get("columns") or {}).items():
-            if isinstance(meta, dict) and "." in key:
-                merged["columns"][key] = {
-                    "description": str(meta.get("description", ""))[:300],
-                    "synonyms": [str(s) for s in (meta.get("synonyms") or [])][:5],
-                }
+    if tasks:
+        await asyncio.gather(*tasks)
 
     logger.info(
         "Glossary enrichment produced %d table entries / %d column entries across %d batch(es).",
-        len(merged["tables"]), len(merged["columns"]), (len(table_names) + BATCH_SIZE - 1) // BATCH_SIZE,
+        len(merged["tables"]), len(merged["columns"]), len(tasks),
     )
     return merged

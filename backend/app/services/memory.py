@@ -1,7 +1,7 @@
 import time
 from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
-from app.core.config import settings
+from app.config.settings import settings
 
 
 class ConversationTurn(BaseModel):
@@ -41,15 +41,14 @@ class ConversationMemory:
             return ""
 
         recent_turns = self.turns[-max_history_turns:]
-        lines = ["\nPrevious turns:"]
+        lines = ["\nPrevious conversation turns:"]
         for turn in recent_turns:
+            summary = " ".join((turn.result_summary or "").strip().split())[:500]
             if turn.intent == "database" and turn.sql:
                 sql_clean = " ".join(turn.sql.strip().split())[:120]
-                lines.append(f"Q: '{turn.question}' -> SQL: {sql_clean}")
-            elif turn.intent == "schema":
-                lines.append(f"Q: '{turn.question}' (Schema query)")
-        if len(lines) <= 1:
-            return ""
+                lines.append(f"User: {turn.question}\nAction: database query\nSQL: {sql_clean}\nAssistant: {summary}")
+            else:
+                lines.append(f"User: {turn.question}\nAction: {turn.intent}\nAssistant: {summary}")
         return "\n".join(lines) + "\n"
 
     def clear(self):

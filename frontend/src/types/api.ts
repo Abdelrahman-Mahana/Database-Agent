@@ -148,12 +148,43 @@ export interface ChatRequest {
   session_id?: string;
 }
 
-export interface ChatResponse {
-  answer?: string;
+export interface ExecutionMetadata {
   question?: string;
   sql?: string;
-  sql_query?: string;
-  execution_time_ms?: number;
+  results?: Record<string, any>[];
+  chart_suggestion?: {
+    should_chart: boolean;
+    chart_type: "bar" | "line" | "pie" | "scatter" | string;
+    x_column: string;
+    y_column: string;
+    reason?: string;
+  };
+  attempted_sql?: string | null;
+  error_type?: string | null;
+  warnings?: string[] | null;
+  suggestions?: string[];
+  intent?: string | null;
+  analysis_type?: string | null;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  quality_score?: number | null;
+  confidence_score?: number | null;
+  timings_ms?: Record<string, number>;
+  schema_metrics?: Record<string, any>;
+  llm_trace?: Record<string, any>[];
+}
+
+export interface UserResponse {
+  answer: string;
+  route?: string;
+  success: boolean;
+  error?: string | null;
+  metadata?: ExecutionMetadata;
+
+  // Legacy flat fields for backward compatibility
+  question?: string;
+  sql?: string;
   results?: Record<string, any>[];
   report?: string;
   chart_suggestion?: {
@@ -163,12 +194,14 @@ export interface ChatResponse {
     y_column: string;
     reason?: string;
   };
-  success?: boolean;
-  error?: string | null;
   attempted_sql?: string | null;
   error_type?: string | null;
+  warnings?: string[] | null;
   suggestions?: string[];
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
 }
+
+export type ChatResponse = UserResponse;
+

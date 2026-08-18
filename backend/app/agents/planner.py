@@ -9,7 +9,7 @@ from langchain_core.prompts import PromptTemplate
 
 from app.llm.prompts import DECOMPOSE_QUESTION_TEMPLATE, SUB_QUESTION_SQL_TEMPLATE, SYNTHESIS_TEMPLATE
 from app.utils.validator import validate_sql, sanitize_query, transpile_sql_to_dialect, get_target_dialect
-from app.utils.text_processor import extract_json_text, build_result_summary, build_temporal_grounding_hint
+from app.utils.text_processor import extract_json_text, build_result_summary, build_temporal_grounding_hint, filter_schema_by_query
 from app.services.sql_service import SQLExecutor
 
 logger = logging.getLogger(__name__)
@@ -95,8 +95,11 @@ class Planner:
                 context_for_prompt = f"{hint}\n{context_for_prompt}"
 
             try:
+                # Filter schema based on tables mentioned in this specific sub-question
+                mini_schema = filter_schema_by_query(schema_text, step)
+                
                 sub_resp = await self.sub_question_chain.ainvoke({
-                    "schema": schema_text,
+                    "schema": mini_schema,
                     "context": context_for_prompt,
                     "sub_question": step
                 })

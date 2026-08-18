@@ -25,7 +25,7 @@ from loguru import logger
 from app.semantic.models import QueryUnderstanding
 from app.semantic.parser import SemanticQueryParser
 from app.semantic.llm_understanding import LLMQueryUnderstander
-from app.core.config import settings
+from app.config.settings import settings
 
 
 class HybridQueryUnderstander:
@@ -40,15 +40,25 @@ class HybridQueryUnderstander:
         question: str,
         schema: Optional[Dict[str, Any]] = None,
         conversation_history: str = "",
+        catalog=None,
     ) -> QueryUnderstanding:
-        if not settings.use_llm_understanding or self.llm_understander is None:
-            return self.regex_parser.parse(question, schema)
+        regex_result = self.regex_parser.parse(question, schema)
 
-        llm_result = await self.llm_understander.understand(question, schema, conversation_history)
+        if not settings.use_llm_understanding or self.llm_understander is None:
+            return regex_result
+
+        # Heuristic fast-path: if regex parser extracted entities/metrics with high confidence,
+        # skip the LLM understanding call completely to save RPM/tokens!
+        min_conf = getattr(settings, "llm_understanding_min_confidence", 0.5)
+        if regex_result.confidence >= min_conf and (regex_result.entities or regex_result.metrics):
+            logger.info("Query understanding resolved via fast deterministic parser (0-token)")
+            regex_result.source = "heuristic_fast_path"
+            return regex_result
+
+        llm_result = await self.llm_understander.understand(question, schema, conversation_history, catalog=catalog)
         if llm_result is None:
-            fallback = self.regex_parser.parse(question, schema)
-            fallback.source = "llm_fallback_regex"
-            return fallback
+            regex_result.source = "llm_fallback_regex"
+            return regex_result
 
         # Safety net: merge in any schema entities/metrics the cheap regex
         # substring match found but the LLM missed, rather than trusting the

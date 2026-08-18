@@ -18,15 +18,18 @@ from app.schema_grounding.grounding_engine import SchemaGroundingEngine
 from app.analytics import AnalyticsEngine, InsightEngine
 from app.semantic.hybrid import HybridQueryUnderstander
 from app.semantic.synonyms import resolve_synonyms
+from app.semantic.query_spec_builder import QuerySpecBuilder
+from app.semantic.models import IntentType, ExecutionRoute, QuerySpec
+from app.semantic.decision import DecisionLayer
 from app.schema_catalog.catalog_builder import CatalogBuilder
 from app.utils.cost_router import should_use_self_consistency, choose_sql_generation_tier
-from app.core.config import settings
+from app.config.settings import settings
 from app.security.cost_guard import check_query_cost
 from app.security.data_masking import mask_sensitive_columns
 
 # --- Tunables -----------------------------------------------------------
 LLM_TEMPERATURE = 0.1          # low temperature: we want deterministic, correct SQL
-MAX_FIX_ATTEMPTS = 2           # how many times we try to auto-repair a failing query
+MAX_FIX_ATTEMPTS = getattr(settings, "max_fix_attempts", 1)  # bounded auto-repair attempts
 MAX_ROWS_FOR_LLM = 200         # cap rows sent to the report/chart LLM calls (cost + context safety)
 
 
@@ -39,6 +42,13 @@ class AnalystAgent:
     4. Executes SQL, auto-repairing on failure (bounded retries)
     5. Generates an analyst report
     6. Suggests chart options
+    
+    ARCHITECTURAL NOTE:
+    This class contains the primary, battle-tested, production-ready linear pipeline (`ask()`).
+    It executes steps synchronously in a fixed sequence. A secondary, experimental execution 
+    path exists in `app.agents.graph_orchestrator` that uses LangGraph for more complex routing. 
+    Both paths utilize the exact same underlying engines (SQLGenerator, SchemaGroundingEngine, etc.).
+    The LangGraph path is only engaged if `settings.use_langgraph_orchestrator` is True.
     """
 
     def __init__(self):
@@ -57,11 +67,9 @@ class AnalystAgent:
         self.intent_classifier = IntentClassifier(self.fast_llm)
         self.schema_explorer = SchemaExplorer()
         self.sql_generator = SQLGenerator(self.primary_llm, self.self_consistency_llm, fast_llm=self.fast_llm)
-        self.planner = Planner(self.primary_llm, self.fast_llm)
-        # Phase 1 (rebuild plan): understanding is now a feature-flagged
-        # LLM-reasoning node with the original regex parser as an automatic
-        # fallback (USE_LLM_UNDERSTANDING env var). See app/semantic/hybrid.py.
-        self.query_understander = HybridQueryUnderstander(self.fast_llm)
+        # Unified QuerySpec Builder (consolidates Intent + Semantics + Planning)
+        self.query_spec_builder = QuerySpecBuilder(self.fast_llm)
+        self.decision_layer = DecisionLayer(self.fast_llm)
         self.analytics_engine = AnalyticsEngine()
         self.insight_engine = InsightEngine()
         # Phase 2 (rebuild plan): compiled lazily on first use, only if
@@ -100,49 +108,101 @@ class AnalystAgent:
             "error": None,
             "attempted_sql": "",
             "error_type": None,
+            "warnings": [],
             "suggestions": [],
             "intent": "database",
         }
 
+        import time
+        req_start = time.perf_counter()
+        timings_ms: dict[str, float] = {}
+
         if not question or not question.strip():
             result["error"] = "Question cannot be empty."
             result["report"] = "Please provide a question to analyze."
+            timings_ms["total_request_time_ms"] = round((time.perf_counter() - req_start) * 1000, 2)
+            result["timings_ms"] = timings_ms
             return result
 
         memory = memory_manager.get_memory(session_id)
         conversation_history = memory.get_history_text()
 
-        # Step 0: Check for schema exploration queries (no LLM, offline resolve)
-        if self.schema_explorer.is_schema_query(question):
-            schema_resp = self.schema_explorer.handle_schema_exploration(question)
-            if schema_resp:
-                schema_resp["intent"] = "schema"
-                memory.add_turn(question, schema_resp.get("sql", ""), schema_resp.get("report", ""), "schema")
-                return schema_resp
+        # Step 0: Decision Layer — no schema, no DB query, no SQL.
+        t0 = time.perf_counter()
+        decision = await self.decision_layer.decide(question, conversation_history)
+        timings_ms["decision_layer_ms"] = round((time.perf_counter() - t0) * 1000, 2)
+        result["intent"] = decision.intent.value
+        result["decision"] = {
+            "route": decision.route.value,
+            "confidence": decision.confidence,
+            "needs_database": decision.needs_database,
+            "needs_schema": decision.needs_schema,
+            "needs_sql": decision.needs_sql,
+            "needs_clarification": decision.needs_clarification,
+            "reason": decision.reason,
+        }
 
-        # Step 0.5: Classify user intent (database vs off-topic vs schema fallback)
-        intent_info = await self.intent_classifier.classify_intent(question, conversation_history)
-        intent = intent_info.get("intent", "database")
-        result["intent"] = intent
-
-        if intent == "off_topic":
-            off_topic_report = await self.intent_classifier.generate_off_topic_response(question)
-            memory.add_turn(question, "", off_topic_report, "off_topic")
-            result["report"] = off_topic_report
+        if decision.needs_clarification:
+            clarification = decision.clarification_question
+            if not clarification:
+                clarification = (
+                    "ممكن توضح لي تقصد أنهي جزء بالضبط؟"
+                    if any("\u0600" <= c <= "\u06FF" for c in question)
+                    else "Could you clarify what you mean?"
+                )
+            memory.add_turn(question, "", clarification, "clarify")
+            result["intent"] = "clarify"
+            result["report"] = clarification
             result["success"] = True
+            result["timings_ms"] = {**timings_ms, "total_request_time_ms": round((time.perf_counter() - req_start) * 1000, 2)}
             return result
-        elif intent == "schema":
+
+        if decision.route == ExecutionRoute.CONVERSATION:
+            conversation_report = await self.report_service.generate_conversational_response(
+                question=question,
+                conversation_history=conversation_history,
+                database_context="Database access was intentionally skipped for this message.",
+            )
+            memory.add_turn(question, "", conversation_report, "conversation")
+            result["intent"] = "conversation"
+            result["report"] = conversation_report
+            result["success"] = True
+            result["timings_ms"] = {**timings_ms, "total_request_time_ms": round((time.perf_counter() - req_start) * 1000, 2)}
+            return result
+
+        # Schema is loaded only after the decision layer has determined that
+        # database metadata or row-level data is actually relevant.
+        t0 = time.perf_counter()
+        db_ctx = self.schema_service.get_database_context()
+        full_schema = db_ctx.schema
+        catalog = db_ctx.catalog
+        timings_ms["schema_cache_lookup_ms"] = round((time.perf_counter() - t0) * 1000, 2)
+        timings_ms["schema_discovery_ms"] = 0.0
+        timings_ms["catalog_lookup_build_ms"] = 0.0
+
+        # Semantic QuerySpec now runs only for database-backed actions.
+        t0 = time.perf_counter()
+        query_spec = self.query_spec_builder.build_spec(
+            question=question,
+            schema=full_schema,
+            conversation_history=conversation_history,
+            catalog=catalog,
+            route_override=decision.route,
+        )
+        timings_ms["query_understanding_ms"] = round((time.perf_counter() - t0) * 1000, 2)
+
+        if decision.route == ExecutionRoute.SCHEMA:
             schema_resp = self.schema_explorer.handle_schema_exploration(question)
             if schema_resp:
                 schema_resp["intent"] = "schema"
                 memory.add_turn(question, schema_resp.get("sql", ""), schema_resp.get("report", ""), "schema")
+                timings_ms["total_request_time_ms"] = round((time.perf_counter() - req_start) * 1000, 2)
+                schema_resp["timings_ms"] = timings_ms
                 return schema_resp
-            result["intent"] = "database"
 
-        # Phase 2 (rebuild plan): try the LangGraph agentic orchestrator when
-        # enabled. Falls back to the untouched linear pipeline below on ANY
-        # failure - including langgraph not being installed - so flipping
-        # this flag can never take the app down.
+        result["intent"] = "data_query"
+
+        # Phase 2 (rebuild plan): try the LangGraph agentic orchestrator when enabled
         if settings.use_langgraph_orchestrator:
             try:
                 from app.agents.graph_orchestrator import run_graph_ask
@@ -153,76 +213,88 @@ class AnalystAgent:
                 )
 
         try:
-            # Step 1: Get grounded minimal schema subset
-            full_schema = self.schema_service.get_schema()
-            query_understanding = await self.query_understander.understand(
-                question, full_schema, conversation_history
-            )
-            logger.debug(
-                "Query understanding source=%s analysis_type=%s confidence=%.2f",
-                query_understanding.source, query_understanding.analysis_type, query_understanding.confidence,
-            )
-
-            # Phase 2: resolve business-language synonyms (e.g. "الإيراد" ->
-            # Orders.Total) against the persisted glossary, if one has been
-            # built for this DB. Pure dict lookups — zero extra LLM cost.
-            # Safe no-op if no catalog/glossary exists yet for this database.
-            catalog = None
+            # Step 1.1: DB connection acquisition
+            t0 = time.perf_counter()
             try:
-                catalog = self.catalog_builder.get_or_build()
-                query_understanding = resolve_synonyms(question, catalog, query_understanding)
-            except Exception as catalog_err:
-                logger.debug("Schema catalog lookup skipped: %s", catalog_err)
+                from sqlalchemy import text
+                db.execute(text("SELECT 1"))
+            except Exception:
+                pass
+            timings_ms["db_connection_acquisition_ms"] = round((time.perf_counter() - t0) * 1000, 2)
 
-            grounded_schema = self.schema_grounding_engine.build_grounded_schema(
+            # Step 1.2: Build Grounded minimal schema subset using unified QuerySpec
+            grounded_schema = await self.schema_grounding_engine.build_grounded_schema_async(
                 schema=full_schema,
-                query_understanding=query_understanding,
+                query_understanding=query_spec,
                 question=question,
-                analysis_type=query_understanding.analysis_type,
+                analysis_type=query_spec.analysis_type,
                 catalog=catalog,
             )
             schema_text = grounded_schema.schema_text
 
-            # Classify analysis type & determine if Planner is required
-            analysis_type = query_understanding.analysis_type
-            result["analysis_type"] = analysis_type.value if hasattr(analysis_type, "value") else str(analysis_type)
-            # Trigger the multi-step Planner on EITHER signal: the legacy
-            # keyword-derived analysis_type (kept as a safety net so behavior
-            # never regresses when running on the regex path) OR the LLM
-            # understanding node's own reasoned judgment that this question
-            # needs decomposition (only set when USE_LLM_UNDERSTANDING=true
-            # and the LLM path was actually used - see semantic/hybrid.py).
-            if analysis_type in COMPLEX_ANALYSIS_TYPES or query_understanding.requires_multi_step:
-                plan_steps = await self.planner.decompose_question(question, schema_text, conversation_history)
-                if plan_steps and len(plan_steps) >= 2:
-                    plan_result = await self.planner.execute_plan(
-                        question=question,
-                        plan_steps=plan_steps,
-                        schema_text=schema_text,
-                        db=db,
-                        conversation_history=conversation_history,
-                        sql_generator=self.sql_generator,
-                        report_service=self.report_service,
-                        memory=memory
-                    )
-                    if plan_result:
-                        return plan_result
+            if getattr(grounded_schema, "fallback_used", False):
+                warn_msg = (
+                    "ما زال يتم قراءة وتحليل هيكل قاعدة البيانات. قد تكون هذه الإجابة غير دقيقة مؤقتًا."
+                    if any("\u0600" <= c <= "\u06FF" for c in question) else
+                    "Database schema profiling is still in progress. This answer may be inaccurate temporarily."
+                )
+                result["warnings"].append(warn_msg)
 
-            # Step 2: Generate SQL via LLM (Fallback / Single-step path)
-            # Phase 4: decide per-question (not globally) whether the extra
-            # cost of self-consistency voting is worth it for this question.
-            use_voting = should_use_self_consistency(question, analysis_type)
-            use_fast = choose_sql_generation_tier(question, analysis_type, query_understanding.confidence)
+            for k, v in grounded_schema.timings_ms.items():
+                timings_ms[k] = round(v, 2)
+
+            total_tables = getattr(db_ctx, "total_tables", len(full_schema))
+            total_columns = getattr(db_ctx, "total_columns", 0) or sum(len(info.get("columns", [])) for info in full_schema.values())
+            retrieved_tables = len(grounded_schema.retrieved_seed_tables)
+            retrieved_columns = sum(len(full_schema[t].get("columns", [])) for t in grounded_schema.retrieved_seed_tables if t in full_schema)
+            grounded_tables = len(grounded_schema.selected_tables)
+            grounded_columns = sum(len(cols) for cols in grounded_schema.selected_columns.values())
+            schema_text_len = len(schema_text)
+
+            schema_metrics = {
+                "total_tables": total_tables,
+                "total_columns": total_columns,
+                "retrieved_tables": retrieved_tables,
+                "retrieved_columns": retrieved_columns,
+                "grounded_tables": grounded_tables,
+                "grounded_columns": grounded_columns,
+                "final_schema_tables": grounded_tables,
+                "final_schema_columns": grounded_columns,
+                "estimated_schema_chars": schema_text_len,
+                "estimated_prompt_chars": schema_text_len + len(question) + 500,
+                "estimated_token_count": schema_text_len // 4,
+            }
+            result["schema_metrics"] = schema_metrics
+
+            # Classify analysis type
+            analysis_type = query_spec.analysis_type
+            result["analysis_type"] = analysis_type.value if hasattr(analysis_type, "value") else str(analysis_type)
+
+            # Step 2: Generate SQL via LLM (Primary Single-Pass SQL path)
+            grounded_tables_count = len(grounded_schema.selected_tables) if grounded_schema else 1
+            has_grouping = len(query_spec.dimensions) > 0 if query_spec else False
+            use_voting = should_use_self_consistency(
+                question, analysis_type, schema_token_estimate=schema_text_len // 4
+            )
+
+            use_fast = choose_sql_generation_tier(
+                question, analysis_type, query_spec.confidence,
+                grounded_table_count=grounded_tables_count, has_grouping=has_grouping
+            )
+
+            t0 = time.perf_counter()
             sql = await self.sql_generator.generate_sql(
                 question, schema_text, db, conversation_history,
                 use_self_consistency=use_voting, use_fast_model=(use_fast == "fast"),
             )
+            timings_ms["sql_generation_ms"] = round((time.perf_counter() - t0) * 1000, 2)
             result["sql"] = sql
 
             # Short-circuit if the model determined the question is out of scope
             reason = self.sql_generator.unanswerable_reason(sql)
             if reason:
                 logger.info("Question flagged UNANSWERABLE: %s", reason)
+                result["sql"] = ""
                 result["report"] = await self.report_service.generate_no_answer_response(
                     question=question,
                     situation="This question cannot be answered using the current database schema.",
@@ -231,11 +303,16 @@ class AnalystAgent:
                 )
                 result["success"] = True
                 memory.add_turn(question, sql, f"Unanswerable: {reason}", "database")
+
+                timings_ms["total_request_time_ms"] = round((time.perf_counter() - req_start) * 1000, 2)
+                result["timings_ms"] = timings_ms
                 return result
 
             # Step 3: Validate SQL safety
+            t0 = time.perf_counter()
             validation = validate_sql(sql)
             if not validation["valid"]:
+                timings_ms["sql_validation_ms"] = round((time.perf_counter() - t0) * 1000, 2)
                 result["attempted_sql"] = sql
                 result["error_type"] = validation.get("query_type", "safety")
                 result["error"] = validation["reason"]
@@ -245,12 +322,11 @@ class AnalystAgent:
                     reason=validation["reason"],
                     table_names=list(full_schema.keys()),
                 )
+                timings_ms["total_request_time_ms"] = round((time.perf_counter() - req_start) * 1000, 2)
+                result["timings_ms"] = timings_ms
                 return result
 
-            # Step 3.5: Static cost pre-check (Phase 5) — catches unfiltered,
-            # unlimited scans of very large tables before they ever hit the
-            # database, using row counts already captured in the schema
-            # catalog. Fails open (allows) when it can't reason about cost.
+            # Step 3.5: Static cost pre-check (Phase 5)
             if settings.enable_cost_guard:
                 try:
                     cost_check = check_query_cost(sql, catalog, settings.cost_guard_max_unfiltered_rows)
@@ -258,6 +334,7 @@ class AnalystAgent:
                     cost_check = None
                     logger.debug("Cost guard check skipped: %s", cost_err)
                 if cost_check is not None and not cost_check.allowed:
+                    timings_ms["sql_validation_ms"] = round((time.perf_counter() - t0) * 1000, 2)
                     result["attempted_sql"] = sql
                     result["error_type"] = "cost_guard"
                     result["error"] = cost_check.reason
@@ -267,13 +344,59 @@ class AnalystAgent:
                         reason=cost_check.reason,
                         table_names=list(full_schema.keys()),
                     )
+                    timings_ms["total_request_time_ms"] = round((time.perf_counter() - req_start) * 1000, 2)
+                    result["timings_ms"] = timings_ms
                     return result
 
+            timings_ms["sql_validation_ms"] = round((time.perf_counter() - t0) * 1000, 2)
+
             # Step 4: Execute, auto-repairing on failure (bounded retries)
+            t0 = time.perf_counter()
+            gen_meta = getattr(self.sql_generator, "last_generation_meta", {})
+            initial_tier = gen_meta.get("sql_generation_tier", "primary")
+            sql_cache_hit = gen_meta.get("sql_cache_hit", False)
+
             rows, final_sql, exec_error, error_type, suggestions = await self.sql_generator.execute_with_repair(
-                question=question, schema_text=schema_text, sql=sql, db=db, max_fix_attempts=MAX_FIX_ATTEMPTS
+                question=question, schema_text=schema_text, sql=sql, db=db, max_fix_attempts=MAX_FIX_ATTEMPTS,
+                initial_tier=initial_tier, sql_cache_hit=sql_cache_hit,
             )
+            timings_ms["sql_execution_ms"] = round((time.perf_counter() - t0) * 1000, 2)
+
+            exec_meta = getattr(self.sql_generator, "last_execution_meta", {})
+            for k in ("sql_generation_tier", "sql_final_tier", "sql_repair_attempts", "sql_repair_success", "sql_cache_hit"):
+                val = exec_meta.get(k)
+                result[k] = val
+
+            timings_ms["sql_repair_attempts"] = float(exec_meta.get("sql_repair_attempts", 0))
+            timings_ms["sql_cache_hit"] = 1.0 if exec_meta.get("sql_cache_hit") else 0.0
+            timings_ms["sql_repair_success"] = 1.0 if exec_meta.get("sql_repair_success") else 0.0
+
+            # Fallback to Planner if single-SQL execution failed on complex multi-step question
             if exec_error is not None:
+                if analysis_type in COMPLEX_ANALYSIS_TYPES or query_spec.requires_multi_step:
+                    logger.info("Single-SQL failed for complex analysis. Triggering Planner as FALLBACK...")
+                    try:
+                        planner = Planner(self.primary_llm, self.fast_llm)
+                        plan_steps = await planner.decompose_question(question, schema_text, conversation_history)
+                        if plan_steps and len(plan_steps) >= 2:
+                            plan_result = await planner.execute_plan(
+                                question=question,
+                                plan_steps=plan_steps,
+                                schema_text=schema_text,
+                                db=db,
+                                conversation_history=conversation_history,
+                                sql_generator=self.sql_generator,
+                                report_service=self.report_service,
+                                memory=memory
+                            )
+                            if plan_result and plan_result.get("success"):
+                                timings_ms["total_request_time_ms"] = round((time.perf_counter() - req_start) * 1000, 2)
+                                plan_result["timings_ms"] = timings_ms
+                                plan_result["schema_metrics"] = schema_metrics
+                                return plan_result
+                    except Exception as plan_err:
+                        logger.warning("Planner fallback execution failed: %s", plan_err)
+
                 result["attempted_sql"] = final_sql
                 result["error_type"] = error_type
                 result["error"] = exec_error
@@ -290,6 +413,8 @@ class AnalystAgent:
                     reason=reason_text,
                     table_names=list(full_schema.keys()),
                 )
+                timings_ms["total_request_time_ms"] = round((time.perf_counter() - req_start) * 1000, 2)
+                result["timings_ms"] = timings_ms
                 return result
 
             result["sql"] = final_sql
@@ -311,12 +436,14 @@ class AnalystAgent:
             # Step 4.5: Run AnalyticsEngine & InsightEngine deterministic pipeline
             analytics_result = None
             insight_result = None
+            t0 = time.perf_counter()
             if rows:
                 try:
                     analytics_result = self.analytics_engine.analyze(rows)
                     insight_result = self.insight_engine.generate_insights(analytics_result)
                 except Exception as analytics_err:
                     logger.warning("Analytics/Insight pipeline execution failed gracefully: %s", analytics_err)
+            timings_ms["analytics_ms"] = round((time.perf_counter() - t0) * 1000, 2)
 
             # Step 5: Generate report
             if not rows:
@@ -328,17 +455,33 @@ class AnalystAgent:
                 )
                 result["success"] = True
                 memory.add_turn(question, final_sql, "No rows returned.", "database")
+                timings_ms["total_request_time_ms"] = round((time.perf_counter() - req_start) * 1000, 2)
+                result["timings_ms"] = timings_ms
                 return result
 
             truncated = len(rows) > MAX_ROWS_FOR_LLM
             rows_for_llm = rows[:MAX_ROWS_FOR_LLM] if truncated else rows
 
-            report = await self.report_service.generate_report(
-                question, final_sql, rows_for_llm,
+            t0 = time.perf_counter()
+            report = await self.report_service.generate_conversational_data_response(
+                question=question,
+                sql=final_sql,
+                results=rows_for_llm,
+                conversation_history=conversation_history,
                 analytics_result=analytics_result,
                 insight_result=insight_result,
-                require_verification=(analysis_type in COMPLEX_ANALYSIS_TYPES),
             )
+            chart = await self.report_service.suggest_chart(
+                question=question,
+                sql=final_sql,
+                results=rows_for_llm,
+                analytics_result=analytics_result,
+                insight_result=insight_result,
+            )
+            step_duration = round((time.perf_counter() - t0) * 1000, 2)
+            timings_ms["report_generation_ms"] = step_duration
+            timings_ms["chart_suggestion_ms"] = 0.0
+
             if truncated:
                 if any("\u0600" <= c <= "\u06FF" for c in question):
                     report += (
@@ -351,12 +494,6 @@ class AnalystAgent:
                         f"of {len(rows)} returned rows.*"
                     )
             result["report"] = report
-
-            chart = await self.report_service.suggest_chart(
-                question, final_sql, rows_for_llm,
-                analytics_result=analytics_result,
-                insight_result=insight_result
-            )
             result["chart_suggestion"] = chart
 
             memory.add_turn(question, final_sql, build_result_summary(rows), "database")
@@ -370,4 +507,14 @@ class AnalystAgent:
             else:
                 result["report"] = f"I encountered an error: {e}"
 
+        timings_ms["total_request_time_ms"] = round((time.perf_counter() - req_start) * 1000, 2)
+        result["timings_ms"] = timings_ms
+        from app.utils.token_tracker import get_llm_trace
+        trace = get_llm_trace()
+        result["llm_trace"] = trace
+        result["llm_call_count"] = len(trace)
+        logger.info(
+            "Stage timings (ms): %s | Schema metrics: %s | LLM calls: %d",
+            timings_ms, result.get("schema_metrics", {}), len(trace),
+        )
         return result

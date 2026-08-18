@@ -27,24 +27,117 @@ from app.semantic.models import (
     OutputFormat,
 )
 from app.utils.text_processor import AnalysisType, extract_json_text
-from app.core.config import settings
+from app.config.settings import settings
 
 _VALID_ANALYSIS_TYPES = {t.value for t in AnalysisType}
 _VALID_AGGREGATIONS = {"COUNT", "SUM", "AVG", "MAX", "MIN"}
 
 
-def _table_summary(schema: Optional[Dict[str, Any]]) -> str:
-    """Compact table/column listing for the prompt (same shape used elsewhere)."""
+def _table_summary(
+    schema: Optional[Dict[str, Any]],
+    question: str = "",
+    catalog=None,
+) -> str:
+    """Compact table/column listing for the prompt.
+
+    For large schemas (> settings.llm_prompt_max_tables tables), we cannot
+    dump every table into the prompt — that exceeds LLM payload limits
+    (e.g. Groq's 413 Payload Too Large). Instead we select only the most
+    relevant tables using, in priority order:
+      1. TF-IDF retrieval from the Schema Catalog (if a glossary exists)
+      2. Keyword matching against table/column names from the question
+      3. FK-centrality fallback (most-connected tables)
+    Small schemas (≤ threshold) are sent in full, unchanged from before.
+    """
     if not schema:
         return "No tables available"
+
+    max_tables = settings.llm_prompt_max_tables
+    max_cols = settings.llm_prompt_max_cols_per_table
+
+    if len(schema) <= max_tables:
+        # Small schema: send everything (original behavior)
+        parts = []
+        for table_name, info in schema.items():
+            cols = [c["name"] for c in info.get("columns", [])[:max_cols]]
+            cols_str = ", ".join(cols)
+            if len(info.get("columns", [])) > max_cols:
+                cols_str += ", ..."
+            parts.append(f"- {table_name} ({cols_str})")
+        return "\n".join(parts)
+
+    # --- Large schema: relevance-based filtering ---
+    selected_tables: list[str] = []
+
+    # 1. Try TF-IDF retrieval from catalog (best quality)
+    if question and catalog is not None:
+        try:
+            from app.schema_catalog.retrieval import retrieve_relevant_tables
+            retrieved = retrieve_relevant_tables(question, catalog, k=max_tables)
+            if retrieved:
+                selected_tables = [t for t in retrieved if t in schema]
+        except Exception:
+            pass
+
+    # 2. If catalog retrieval didn't produce enough, supplement with
+    #    keyword matching against table/column names
+    if len(selected_tables) < 20 and question:
+        q_lower = question.lower()
+        for table_name in schema:
+            if table_name in selected_tables:
+                continue
+            t_lower = table_name.lower()
+            # Match table name or its singular/plural forms
+            if (
+                t_lower in q_lower
+                or any(form in q_lower for form in (
+                    t_lower + "s", t_lower + "es",
+                    t_lower[:-1] + "ies" if t_lower.endswith("y") else "",
+                    t_lower[:-1] if t_lower.endswith("s") else "",
+                ))
+            ):
+                selected_tables.append(table_name)
+            else:
+                # Match column names
+                for col in schema[table_name].get("columns", []):
+                    col_lower = col["name"].lower()
+                    if len(col_lower) > 3 and col_lower in q_lower:
+                        selected_tables.append(table_name)
+                        break
+            if len(selected_tables) >= max_tables:
+                break
+
+    # 3. If still nothing, fallback to FK-centrality (most connected tables)
+    if not selected_tables:
+        try:
+            from app.database.context import db_context_manager
+            from app.schema_grounding.schema_intelligence import compute_structural_schema_fingerprint
+            fp = compute_structural_schema_fingerprint(schema)
+            ctx = db_context_manager.get(fp)
+            if ctx and ctx.relationship_graph:
+                graph = ctx.relationship_graph
+            else:
+                from app.schema_grounding.relationship_graph import SchemaRelationshipGraph
+                graph = SchemaRelationshipGraph(schema)
+            selected_tables = list(graph.get_most_central_tables(limit=max_tables))
+        except Exception:
+            # Last resort: take first max_tables alphabetically
+            selected_tables = sorted(schema.keys())[:max_tables]
+
+    # Cap to max_tables
+    selected_tables = selected_tables[:max_tables]
+
     parts = []
-    for table_name, info in schema.items():
-        cols = [c["name"] for c in info.get("columns", [])[:8]]
+    for table_name in selected_tables:
+        info = schema.get(table_name, {})
+        cols = [c["name"] for c in info.get("columns", [])[:max_cols]]
         cols_str = ", ".join(cols)
-        if len(info.get("columns", [])) > 8:
+        if len(info.get("columns", [])) > max_cols:
             cols_str += ", ..."
         parts.append(f"- {table_name} ({cols_str})")
-    return "\n".join(parts)
+
+    header = f"[Showing {len(selected_tables)} most relevant tables out of {len(schema)} total]"
+    return f"{header}\n" + "\n".join(parts)
 
 
 def _derive_expected_output(analysis_type: AnalysisType, aggregations: list, dimensions: list, limit: Optional[int]) -> OutputFormat:
@@ -78,6 +171,7 @@ class LLMQueryUnderstander:
         question: str,
         schema: Optional[Dict[str, Any]] = None,
         conversation_history: str = "",
+        catalog=None,
     ) -> Optional[QueryUnderstanding]:
         """Return a QueryUnderstanding via LLM reasoning, or None on any failure/low confidence."""
         if not question or not question.strip():
@@ -85,7 +179,7 @@ class LLMQueryUnderstander:
 
         try:
             response = await self.chain.ainvoke({
-                "table_names": _table_summary(schema),
+                "table_names": _table_summary(schema, question=question, catalog=catalog),
                 "question": question,
                 "conversation_history": conversation_history,
             })

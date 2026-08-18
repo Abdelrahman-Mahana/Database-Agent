@@ -33,25 +33,44 @@ class SchemaExplorer:
         schema = self.schema_service.get_schema()
         is_arabic = bool(re.search(r"[\u0600-\u06FF]", question))
         
-        # 1. Ask for all tables list
-        if any(x in q for x in ("list tables", "show tables", "what tables", "database tables", "all tables", "جداول", "الجدول", "اعرض الجداول", "ما هي الجداول", "هيكلية")):
+        # 1. Database/schema overview — metadata only, no SQL.
+        overview_terms = (
+            "list tables", "show tables", "what tables", "database tables", "all tables",
+            "database overview", "describe database", "database structure", "schema overview",
+            "اشرحلي قواعد البيانات", "اشرح قواعد البيانات", "اشرحلي قاعدة البيانات",
+            "اشرح قاعدة البيانات", "اوصفلي قواعد البيانات", "اوصف قواعد البيانات",
+            "اوصفلي قاعدة البيانات", "وصف قواعد البيانات", "وصف قاعدة البيانات",
+            "ما هي الجداول", "ماهي الجداول", "اعرض الجداول", "هيكلية", "هيكل البيانات",
+            "الجداول الموجودة", "الجداول المتاحة", "قواعد البيانات الموجودة",
+        )
+        if any(x in q for x in overview_terms):
             tables = sorted(list(schema.keys()))
             if is_arabic:
-                report = "# نظرة عامة على هيكل قاعدة البيانات\n\nتحتوي قاعدة البيانات على الجداول التالية:\n\n"
+                report = f"أكيد. قاعدة البيانات الحالية فيها **{len(tables)} جدول**، وكل جدول مسؤول عن جزء مختلف من البيانات.\n\n"
                 for t in tables:
-                    col_count = len(schema[t]["columns"])
-                    pk = ", ".join(schema[t].get("primary_key", []))
-                    report += f"- **{t}** ({col_count} أعمدة، المفتاح الأساسي: `{pk}`)\n"
+                    cols = schema[t].get("columns", [])
+                    col_names = [str(c.get("name")) for c in cols[:8]]
+                    more = "..." if len(cols) > 8 else ""
+                    report += f"- **{t}**: {len(cols)} أعمدة"
+                    if col_names:
+                        report += f" مثل {', '.join(col_names)}{more}"
+                    report += ".\n"
+                report += "\nلو تحب، أقدر أشرح لك وظيفة كل جدول والعلاقات بينهم بشكل أبسط."
             else:
-                report = "# Database Schema Overview\n\nThe database contains the following tables:\n\n"
+                report = f"Sure. The current database contains **{len(tables)} tables**, each covering a different part of the data.\n\n"
                 for t in tables:
-                    col_count = len(schema[t]["columns"])
-                    pk = ", ".join(schema[t].get("primary_key", []))
-                    report += f"- **{t}** ({col_count} columns, Primary Key: `{pk}`)\n"
+                    cols = schema[t].get("columns", [])
+                    col_names = [str(c.get("name")) for c in cols[:8]]
+                    more = "..." if len(cols) > 8 else ""
+                    report += f"- **{t}**: {len(cols)} columns"
+                    if col_names:
+                        report += f" such as {', '.join(col_names)}{more}"
+                    report += ".\n"
+                report += "\nI can also explain what each table is for and how the tables relate to each other."
             
             return {
                 "question": question,
-                "sql": "-- Schema Exploration (No SQL Executed)",
+                "sql": "",
                 "results": [{"table_name": t} for t in tables],
                 "report": report,
                 "chart_suggestion": {"should_chart": False},
@@ -62,10 +81,54 @@ class SchemaExplorer:
                 "suggestions": []
             }
 
-        # 2. Ask about a specific table or table columns/relationships
+        # 2. Compare/explain two specific tables using metadata only.
+        comparison_terms = ("difference between", "compare table", "الفرق بين", "قارن بين الجدول", "مقارنة بين الجدولين")
+        if any(term in q for term in comparison_terms):
+            matched_tables = []
+            for table_name in schema.keys():
+                if re.search(rf"\b{re.escape(table_name.lower())}\b", q):
+                    matched_tables.append(table_name)
+            if len(matched_tables) >= 2:
+                a, b = matched_tables[:2]
+                a_cols = {str(c.get("name")) for c in schema[a].get("columns", [])}
+                b_cols = {str(c.get("name")) for c in schema[b].get("columns", [])}
+                common = sorted(a_cols & b_cols)
+                a_only = sorted(a_cols - b_cols)
+                b_only = sorted(b_cols - a_cols)
+                is_arabic = bool(re.search(r"[\u0600-\u06FF]", question))
+                if is_arabic:
+                    report = (
+                        f"الفرق الأساسي إن **{a}** يحتوي على {len(a_cols)} أعمدة، بينما **{b}** يحتوي على {len(b_cols)} أعمدة.\n\n"
+                        f"الأعمدة المشتركة: {', '.join(common) if common else 'لا توجد أعمدة مشتركة واضحة'}.\n"
+                        f"الموجودة في **{a}** فقط: {', '.join(a_only[:12]) if a_only else 'لا يوجد'}.\n"
+                        f"الموجودة في **{b}** فقط: {', '.join(b_only[:12]) if b_only else 'لا يوجد'}.\n\n"
+                        "وده مقارنة مبنية على هيكل الجداول نفسه، من غير تنفيذ أي SQL."
+                    )
+                else:
+                    report = (
+                        f"The main difference is that **{a}** has {len(a_cols)} columns, while **{b}** has {len(b_cols)} columns.\n\n"
+                        f"Common columns: {', '.join(common) if common else 'No obvious shared columns'}.\n"
+                        f"Only in **{a}**: {', '.join(a_only[:12]) if a_only else 'None'}.\n"
+                        f"Only in **{b}**: {', '.join(b_only[:12]) if b_only else 'None'}.\n\n"
+                        "This comparison is based only on the table structure; no SQL was executed."
+                    )
+                return {
+                    "question": question,
+                    "sql": "",
+                    "results": [{"table": a}, {"table": b}],
+                    "report": report,
+                    "chart_suggestion": {"should_chart": False},
+                    "success": True,
+                    "error": None,
+                    "attempted_sql": "",
+                    "error_type": None,
+                    "suggestions": []
+                }
+
+        # 3. Ask about a specific table or table columns/relationships
         target_table = None
         for table_name in schema.keys():
-            if re.search(rf"\b{table_name.lower()}\b", q):
+            if re.search(rf"\b{re.escape(table_name.lower())}\b", q):
                 target_table = table_name
                 break
 
@@ -127,7 +190,7 @@ class SchemaExplorer:
 
                 return {
                     "question": question,
-                    "sql": f"-- Relationship Schema Exploration for {target_table}",
+                    "sql": "",
                     "results": links,
                     "report": report,
                     "chart_suggestion": {"should_chart": False},
@@ -166,7 +229,7 @@ class SchemaExplorer:
 
                 return {
                     "question": question,
-                    "sql": f"-- Column Schema Exploration for {target_table}",
+                    "sql": "",
                     "results": results_list,
                     "report": report,
                     "chart_suggestion": {"should_chart": False},

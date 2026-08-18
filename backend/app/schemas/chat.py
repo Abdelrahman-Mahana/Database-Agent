@@ -18,6 +18,7 @@ class ChatResponse(BaseModel):
     error: str | None
     attempted_sql: str | None = None
     error_type: str | None = None
+    warnings: list[str] | None = None
     suggestions: list[str] | None = None
     intent: str | None = None
     analysis_type: str | None = None
@@ -26,6 +27,15 @@ class ChatResponse(BaseModel):
     total_tokens: int = 0
     quality_score: float | None = None
     confidence_score: float | None = None
+    sql_generation_tier: str | None = None
+    sql_final_tier: str | None = None
+    sql_repair_attempts: int | None = None
+    sql_repair_success: bool | None = None
+    sql_cache_hit: bool | None = None
+    timings_ms: dict[str, float] | None = None
+    schema_metrics: dict[str, Any] | None = None
+    decision: dict[str, Any] | None = None
+
 
 
 class HealthResponse(BaseModel):
@@ -102,6 +112,7 @@ class SchemaResponse(BaseModel):
     summary: dict[str, Any] = Field(default_factory=dict)
     cache_hit: bool = False
     connection_id: str | None = None
+    fingerprint: str | None = None
 
 
 class ConnectionConfigRequest(BaseModel):

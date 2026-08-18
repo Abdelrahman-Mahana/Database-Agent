@@ -19,3 +19,6 @@ class GroundedSchema(BaseModel):
     schema_text: str = ""
     pruned_table_count: int = 0
     original_table_count: int = 0
+    retrieved_seed_tables: List[str] = Field(default_factory=list)
+    timings_ms: Dict[str, float] = Field(default_factory=dict)
+    fallback_used: bool = False

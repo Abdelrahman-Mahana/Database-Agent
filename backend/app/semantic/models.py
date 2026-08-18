@@ -28,9 +28,36 @@ class OutputFormat(str, Enum):
     TIME_SERIES = "time_series"
 
 
-class QueryUnderstanding(BaseModel):
-    """Structured, deterministic semantic representation of a user query."""
+class IntentType(str, Enum):
+    """High-level domain intent kept for backward compatibility."""
+    DATABASE = "database"
+    SCHEMA = "schema"
+    OFF_TOPIC = "off_topic"
+    GREETING = "greeting"
+
+
+class ExecutionRoute(str, Enum):
+    """Controls which internal capability should handle the user request."""
+    CONVERSATION = "conversation"
+    SCHEMA = "schema"
+    DATA_QUERY = "data_query"
+    TOOLS = "tools"
+    CLARIFY = "clarify"
+
+
+class QuerySpec(BaseModel):
+    """
+    Unified Semantic Query Specification.
+    Consolidates Intent Classification, Semantic Parsing, and Execution Planning into a single representation.
+    """
     raw_question: str
+    intent: IntentType = IntentType.DATABASE
+    route: ExecutionRoute = ExecutionRoute.CONVERSATION
+    route_confidence: float = 0.0
+    off_topic_reason: Optional[str] = None
+    off_topic_response: Optional[str] = None
+
+    # Semantic Query Understanding
     analysis_type: AnalysisType = AnalysisType.UNKNOWN
     entities: List[str] = Field(default_factory=list)
     metrics: List[str] = Field(default_factory=list)
@@ -42,22 +69,19 @@ class QueryUnderstanding(BaseModel):
     limit: Optional[int] = None
     expected_output: OutputFormat = OutputFormat.TABLE
 
-    # --- Phase 1 (LLM Understanding Layer) additions ---
-    # True when the question itself (not a keyword like "compare"/"trend")
-    # genuinely needs decomposition into sub-questions. Set by the LLM
-    # understanding node's own reasoning; the regex parser never sets this
-    # (it has no notion of "requires planning" beyond analysis_type keywords),
-    # so it defaults to False and callers fall back to
-    # `analysis_type in COMPLEX_ANALYSIS_TYPES` in that case.
+    # Planning & Multi-step Execution
     requires_multi_step: bool = False
-    # How confident the understanding is in its own output. The regex parser
-    # is always "confident" (1.0) because it's deterministic pattern matching,
-    # not judgment. The LLM path reports its own uncertainty so the caller can
-    # fall back to the deterministic parser when it's below threshold.
+    plan_steps: List[str] = Field(default_factory=list)
+
+    # Observability & Metadata
     confidence: float = 1.0
-    # Which layer actually produced this understanding: "regex" (deterministic
-    # parser), "llm" (LLM reasoning node), or "llm_fallback_regex" (LLM path
-    # was enabled but failed/low-confidence, so this is the regex result).
-    # Purely for observability/eval - never changes downstream behavior.
-    source: str = "regex"
+    source: str = "deterministic"
     business_goal: Optional[str] = None
+
+    def to_query_understanding(self) -> "QuerySpec":
+        """Return self for seamless backward compatibility."""
+        return self
+
+
+# Backward-compatible alias for existing code
+QueryUnderstanding = QuerySpec

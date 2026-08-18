@@ -17,9 +17,9 @@ from typing import Optional
 from app.schema_catalog.models import SchemaCatalog
 from app.semantic.models import QueryUnderstanding
 
-# Split on whitespace and common Arabic/English punctuation to get candidate
+# Split on whitespace and exclude common Arabic/English punctuation to get candidate
 # phrases (unigrams + bigrams) worth checking against the glossary.
-_TOKEN_RE = re.compile(r"[\w\u0600-\u06FF]+", re.UNICODE)
+_TOKEN_RE = re.compile(r"[\w\u0621-\u064A\u0660-\u0669]+", re.UNICODE)
 
 
 def _candidate_phrases(question: str) -> list[str]:

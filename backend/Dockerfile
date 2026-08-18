@@ -18,8 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:/root/.cargo/bin:${PATH}"
 
-COPY pyproject.toml requirements.txt README.md ./
-RUN uv pip install --system -r requirements.txt -e .
+COPY pyproject.toml README.md ./
+RUN uv pip install --system -e .
 
 COPY . .
 

@@ -311,3 +311,49 @@ def build_temporal_grounding_hint(question: str, schema_text: str) -> str | None
         f"use {most_recent_year} (the most recent year present in the data) "
         f"instead of assuming a year from general knowledge about this schema."
     )
+
+
+def filter_schema_by_query(schema_text: str, query: str) -> str:
+    """
+    Extracts table names mentioned in a query (e.g., SQL statement or sub-question)
+    and filters a DDL-formatted schema_text to only include those tables.
+    Returns the original schema_text if no matching tables are found.
+    """
+    if not schema_text or not query:
+        return schema_text
+
+    # Extract all table names defined in the schema_text.
+    # We look for lines like "table_name(" in the compact DDL format.
+    table_lines = {}
+    header_lines = []
+    
+    for line in schema_text.splitlines():
+        if line.startswith("Database Schema") or line.startswith("..."):
+            header_lines.append(line)
+            continue
+            
+        match = re.match(r"^([a-zA-Z0-9_]+)\s*\(", line)
+        if match:
+            table_name = match.group(1)
+            table_lines[table_name.lower()] = line
+
+    if not table_lines:
+        return schema_text
+
+    # Find which tables are mentioned in the query
+    q_lower = query.lower()
+    matched_tables = set()
+    for t_name in table_lines.keys():
+        # Match table name as a distinct word in the query
+        if re.search(rf"\b{re.escape(t_name)}\b", q_lower):
+            matched_tables.add(t_name)
+
+    if not matched_tables:
+        return schema_text
+
+    # Reconstruct the schema_text with only matched tables
+    filtered_lines = list(header_lines)
+    for t_name in sorted(matched_tables):
+        filtered_lines.append(table_lines[t_name])
+
+    return "\n".join(filtered_lines)

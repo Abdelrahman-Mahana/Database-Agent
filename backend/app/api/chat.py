@@ -8,7 +8,7 @@ from app.schemas.chat import ChatRequest, ChatResponse
 from app.services.memory import memory_manager
 from app.utils.token_tracker import reset_token_usage, get_current_token_usage
 from app.utils.cost_dashboard import cost_dashboard
-from app.core.config import settings
+from app.config.settings import settings
 from app.llm.model import get_llm_client
 from app.evaluation import AgentEvaluator
 

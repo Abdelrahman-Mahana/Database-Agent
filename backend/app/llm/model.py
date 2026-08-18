@@ -1,4 +1,4 @@
-"""LLM client supporting both Ollama (local) and OpenRouter."""
+import asyncio
 import json
 import logging
 from typing import AsyncGenerator
@@ -29,7 +29,7 @@ except ImportError:
     except ImportError:
         ChatOllama = None
 
-from app.core.config import settings
+from app.config.settings import settings
 from app.utils.token_tracker import ContextTokenTrackerCallback
 
 logger = logging.getLogger(__name__)
@@ -68,21 +68,57 @@ async def _fetch_openrouter_pricing() -> dict[str, dict[str, float]]:
 
 # Initialize global cache
 try:
-    if settings.redis_url:
-        import redis
-        from langchain_community.cache import RedisCache
-        redis_client = redis.from_url(settings.redis_url)
-        set_llm_cache(RedisCache(redis_client))
-        logger.info("LangChain RedisCache initialized successfully.")
-    else:
-        set_llm_cache(InMemoryCache())
-        logger.info("LangChain InMemoryCache initialized (no Redis URL).")
+    set_llm_cache(InMemoryCache())
+    logger.info("LangChain InMemoryCache initialized.")
 except Exception as e:
-    try:
-        set_llm_cache(InMemoryCache())
-    except Exception:
-        pass
-    logger.warning("Failed to initialize RedisCache, falling back to InMemoryCache: %s", e)
+    logger.warning("Failed to initialize InMemoryCache: %s", e)
+
+
+async def _post_with_retry(
+    client: httpx.AsyncClient,
+    url: str,
+    headers: dict,
+    json_payload: dict,
+    max_retries: int = 3,
+    initial_delay: float = 2.0,
+) -> httpx.Response:
+    """Execute HTTP POST with exponential backoff on 429 Rate Limits and transient errors."""
+    for attempt in range(max_retries + 1):
+        try:
+            response = await client.post(url, headers=headers, json=json_payload)
+            if response.status_code == 429:
+                if attempt < max_retries:
+                    retry_after = response.headers.get("retry-after")
+                    if retry_after:
+                        try:
+                            delay = min(float(retry_after), 10.0)
+                        except ValueError:
+                            delay = initial_delay * (2 ** attempt)
+                    else:
+                        delay = initial_delay * (2 ** attempt)
+                    logger.warning(
+                        "Rate limit 429 encountered from LLM API. Retrying in %.1fs (attempt %d/%d)...",
+                        delay, attempt + 1, max_retries
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+            response.raise_for_status()
+            return response
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429 and attempt < max_retries:
+                delay = initial_delay * (2 ** attempt)
+                logger.warning("Rate limit 429 encountered from LLM API. Retrying in %.1fs...", delay)
+                await asyncio.sleep(delay)
+                continue
+            raise
+        except (httpx.ConnectError, httpx.TimeoutException) as e:
+            if attempt < max_retries:
+                delay = 1.5 * (2 ** attempt)
+                logger.warning("Network error connecting to LLM API (%s). Retrying in %.1fs...", e, delay)
+                await asyncio.sleep(delay)
+                continue
+            raise
+    raise RuntimeError("Exceeded maximum retries for LLM API request.")
 
 
 SYSTEM_PROMPT = """You are an expert database analyst and SQL writer.
@@ -194,12 +230,12 @@ class OpenRouterClient:
             "temperature": temperature,
         }
         try:
-            response = await self.client.post(
+            response = await _post_with_retry(
+                self.client,
                 f"{self.base_url}/chat/completions",
                 headers=headers,
-                json=payload,
+                json_payload=payload,
             )
-            response.raise_for_status()
             data = response.json()
             choices = data.get("choices", [])
             if choices:
@@ -322,12 +358,12 @@ class GroqClient:
             "temperature": temperature,
         }
         try:
-            response = await self.client.post(
+            response = await _post_with_retry(
+                self.client,
                 f"{self.base_url}/chat/completions",
                 headers=headers,
-                json=payload,
+                json_payload=payload,
             )
-            response.raise_for_status()
             data = response.json()
             choices = data.get("choices", [])
             if choices:
@@ -440,12 +476,12 @@ class OpenAIClient:
             "temperature": temperature,
         }
         try:
-            response = await self.client.post(
+            response = await _post_with_retry(
+                self.client,
                 f"{self.base_url}/chat/completions",
                 headers=headers,
-                json=payload,
+                json_payload=payload,
             )
-            response.raise_for_status()
             data = response.json()
             choices = data.get("choices", [])
             if choices:
@@ -540,9 +576,15 @@ def get_llm_client():
     return OllamaClient()
 
 
-def get_langchain_llm(tier: str = "primary", temperature: float = 0.1):
+def get_langchain_llm(
+    tier: str = "primary",
+    temperature: float = 0.1,
+    stage: str = "general",
+    component: str = "LLM",
+    purpose: str = "generation",
+):
     """Factory function to get a LangChain LLM instance (ChatOpenAI or ChatOllama)."""
-    cb = ContextTokenTrackerCallback()
+    cb = ContextTokenTrackerCallback(stage=stage, component=component, purpose=purpose, tier=tier)
     provider = settings.llm_provider
     if provider == "openai":
         model_name = (
@@ -556,6 +598,8 @@ def get_langchain_llm(tier: str = "primary", temperature: float = 0.1):
             openai_api_base=settings.openai_base_url,
             temperature=temperature,
             callbacks=[cb],
+            max_retries=3,
+            request_timeout=60.0,
         )
     elif provider == "groq":
         model_name = (
@@ -569,6 +613,8 @@ def get_langchain_llm(tier: str = "primary", temperature: float = 0.1):
             openai_api_base=settings.groq_base_url,
             temperature=temperature,
             callbacks=[cb],
+            max_retries=3,
+            request_timeout=60.0,
         )
     elif provider == "openrouter":
         model_name = (
@@ -582,6 +628,8 @@ def get_langchain_llm(tier: str = "primary", temperature: float = 0.1):
             openai_api_base=settings.openrouter_base_url,
             temperature=temperature,
             callbacks=[cb],
+            max_retries=3,
+            request_timeout=60.0,
             model_kwargs={
                 "extra_headers": {
                     "HTTP-Referer": "http://localhost:8000",

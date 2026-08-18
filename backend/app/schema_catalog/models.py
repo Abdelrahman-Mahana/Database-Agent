@@ -50,11 +50,8 @@ class TableProfile:
     description: Optional[str] = None
     synonyms: list[str] = field(default_factory=list)
     # --- Phase 3: semantic retrieval ---
-    # Precomputed embedding vector of this table's "document" (name +
-    # description + synonyms + column names/descriptions/synonyms), filled
-    # once by CatalogBuilder.ensure_table_embeddings(). None until that
-    # explicit enrichment step has run for this catalog.
-    embedding: Optional[list[float]] = None
+    # Precomputed embedding vector is stored in a separate FAISS index file on disk,
+    # not in this JSON profile.
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -119,17 +116,32 @@ class SchemaCatalog:
         )
 
     # --- Convenience lookups used by the synonym resolver / grounding engine ---
+    _synonym_index: Optional[dict[str, list[tuple[str, Optional[str]]]]] = field(default=None, repr=False, compare=False)
+
+    def _ensure_synonym_index(self) -> dict[str, list[tuple[str, Optional[str]]]]:
+        """Build an inverted dictionary index of all synonyms once in RAM."""
+        if self._synonym_index is not None:
+            return self._synonym_index
+
+        index: dict[str, list[tuple[str, Optional[str]]]] = {}
+        for tname, tprof in self.tables.items():
+            for s in tprof.synonyms:
+                s_l = s.strip().lower()
+                if s_l:
+                    index.setdefault(s_l, []).append((tname, None))
+            for col in tprof.columns:
+                for s in col.synonyms:
+                    s_l = s.strip().lower()
+                    if s_l:
+                        index.setdefault(s_l, []).append((tname, col.name))
+
+        self._synonym_index = index
+        return index
 
     def find_by_synonym(self, term: str) -> list[tuple[str, Optional[str]]]:
-        """Return [(table_name, column_name_or_None), ...] matching a business term."""
+        """Return [(table_name, column_name_or_None), ...] matching a business term in O(1)."""
         term_l = term.strip().lower()
         if not term_l:
             return []
-        hits: list[tuple[str, Optional[str]]] = []
-        for tname, tprof in self.tables.items():
-            if term_l in [s.lower() for s in tprof.synonyms]:
-                hits.append((tname, None))
-            for col in tprof.columns:
-                if term_l in [s.lower() for s in col.synonyms]:
-                    hits.append((tname, col.name))
-        return hits
+        index = self._ensure_synonym_index()
+        return index.get(term_l, [])

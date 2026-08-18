@@ -1,7 +1,7 @@
 """Prompt templates for the analyst agent."""
 from langchain_core.prompts import PromptTemplate
 SQL_ZERO_SHOT_TEMPLATE = PromptTemplate(
-    input_variables=["schema", "question", "conversation_history"],
+    input_variables=["schema", "question", "conversation_history", "dialect_guidelines"],
     template="""Write a clean, read-only SELECT SQL query for the database schema and conversation history.
 
 <schema>
@@ -9,14 +9,16 @@ SQL_ZERO_SHOT_TEMPLATE = PromptTemplate(
 </schema>
 {conversation_history}
 
+{dialect_guidelines}
+
 Rules:
 - Use ONLY tables/columns in the schema. Do not invent or hallucinate names.
 - SELECT queries only (no INSERT/UPDATE/DELETE/DDL).
-- If a date/datetime column shows a "Data range" comment, and the question references a relative time period (a month/quarter with no year, "this year", "recently", "last N months", etc.), use the actual year(s)/dates covered by that range - never assume a year from general knowledge about what this schema "usually" contains (e.g. do not assume Northwind data is from 1996 - check the shown range). If the question's year is ambiguous and the range spans multiple years, prefer the most recent year present in the range unless the question implies otherwise.
-- Ensure syntax is portable/compatible with both PostgreSQL and SQLite (e.g. use standard CAST instead of ::type).
+- If a date/datetime column shows a "Data range" comment, and the question references a relative time period (a month/quarter with no year, "this year", "recently", "last N months", etc.), use the actual year(s)/dates covered by that range - never assume a year from general knowledge about what this schema "usually" contains. If the question's year is ambiguous and the range spans multiple years, prefer the most recent year present in the range unless the question implies otherwise.
+- Strictly adhere to the Target SQL Dialect rules and syntax specified above.
 - Join tables using correct foreign keys to avoid cartesian products.
 - Qualify all columns with table aliases.
-- Use appropriate aggregation, GROUP BY, and ORDER BY with LIMIT when top/most is requested.
+- Use appropriate aggregation, GROUP BY, and ORDER BY with appropriate LIMIT/TOP syntax for the dialect when top/most is requested.
 - Arabic text values (names, cities, product/category labels, etc.): never require an exact match. Egyptian/Arabic spelling varies a lot in real data and in how users type it (أ/إ/آ/ا all used for the same word, ة/ه interchanged, ي/ى interchanged, extra tashkeel/diacritics, "ال" prefix present or missing). Always match with LIKE '%value%' (never '='), and prefer trimming the leading "ال" from the search term if present. If the question gives a name/word with a specific hamza/alef form, ALSO try the query without diacritics/hamza (treat أ/إ/آ as ا) so a slightly different spelling in the data still matches.
 - If unanswerable from the schema, return exactly: SELECT 'UNANSWERABLE: <reason>' AS error;
 - Output ONLY raw SQL code (no markdown code blocks, comments, or explanations).
@@ -35,9 +37,11 @@ Failed Query: {sql}
 Error: {error}
 Original Question: {question}
 
+{dialect_guidelines}
+
 Rules:
 - Use ONLY columns/tables in the schema with exact spelling/casing.
-- SELECT queries only (no writes/DDL). Compatible with SQLite and PostgreSQL.
+- SELECT queries only (no writes/DDL). Strictly adhere to the Target SQL Dialect syntax.
 - Preserve query intent.
 - If the failure looks like an Arabic text value not matching (0 rows, or column/value type error on an Arabic literal), switch an exact match ('=') to LIKE '%value%', and consider that hamza (أ/إ/آ vs ا), ta-marbuta (ة vs ه), or a leading "ال" may differ between the question's spelling and the stored data.
 - If unanswerable, return exactly: SELECT 'UNANSWERABLE: <reason>' AS error;

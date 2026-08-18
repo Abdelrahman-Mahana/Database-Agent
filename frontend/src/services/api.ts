@@ -2,12 +2,29 @@ import axios from 'axios';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 
+const getSessionId = () => {
+  if (typeof window === 'undefined') return 'default_session';
+  let sid = sessionStorage.getItem('session_id');
+  if (!sid) {
+    sid = (typeof crypto !== 'undefined' && crypto.randomUUID) 
+          ? crypto.randomUUID() 
+          : Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    sessionStorage.setItem('session_id', sid);
+  }
+  return sid;
+};
+
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 180000,
+  timeout: 300000,
   headers: {
     'Content-Type': 'application/json',
   },
+});
+
+apiClient.interceptors.request.use((config) => {
+  config.headers['X-Session-Id'] = getSessionId();
+  return config;
 });
 
 apiClient.interceptors.response.use(

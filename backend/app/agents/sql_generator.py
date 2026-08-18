@@ -6,13 +6,13 @@ from typing import Any, List, Tuple
 
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.config.settings import settings
 from app.services.sql_service import SchemaService, SQLExecutor
 from app.utils.cache import get_cached_sql, set_cached_sql, get_cached_results, set_cached_results
-from app.utils.text_processor import extract_sql, normalize_sql
+from app.utils.text_processor import extract_sql, normalize_sql, filter_schema_by_query
 from app.sql import (
     SQLPromptBuilder,
-    GroundingEngine,
+    AnswerabilityChecker,
     SQLValidator,
     SQLRepairEngine,
 )
@@ -32,7 +32,7 @@ class SQLGenerator:
 
         # Modular sub-components
         self.prompt_builder = SQLPromptBuilder()
-        self.grounding_engine = GroundingEngine()
+        self.answerability_checker = AnswerabilityChecker()
         self.validator = SQLValidator()
         self.repair_engine = SQLRepairEngine(self.primary_llm)
 
@@ -69,11 +69,31 @@ class SQLGenerator:
         was actually constructed with a fast_llm.
         """
         # 1. Check generated SQL cache first
-        cached_sql = get_cached_sql(question, schema_text)
+        fp = self.schema_service._get_db_fingerprint()
+        dialect = getattr(getattr(self.schema_service, "engine", None), "dialect", None)
+        dialect_name = getattr(dialect, "name", "sql") if dialect else "sql"
+
+        cached_sql, cache_meta = get_cached_sql(
+            question, schema_text, database_fingerprint=fp, dialect=dialect_name
+        )
         if cached_sql:
+            origin_tier = (cache_meta or {}).get("origin_generation_tier", "primary")
+            self.last_generation_meta = {
+                "sql_generation_tier": origin_tier,
+                "sql_cache_hit": True,
+            }
             return cached_sql
 
         use_voting = settings.enable_self_consistency if use_self_consistency is None else use_self_consistency
+        gen_tier = (
+            "self_consistency"
+            if (use_voting and settings.sql_candidates > 1)
+            else ("fast" if (use_fast_model and self.fast_generation_chain is not None) else "primary")
+        )
+        self.last_generation_meta = {
+            "sql_generation_tier": gen_tier,
+            "sql_cache_hit": False,
+        }
 
         if not use_voting or settings.sql_candidates <= 1:
             # Single candidate generation
@@ -82,6 +102,7 @@ class SQLGenerator:
                 schema_text=schema_text,
                 question=question,
                 conversation_history=conversation_history,
+                dialect=dialect_name,
             )
             chain = (
                 self.fast_generation_chain
@@ -94,7 +115,10 @@ class SQLGenerator:
             sql_response = response.content
             raw_sql = self.validator.sanitize_and_extract(sql_response)
             final_sql = self.validator.transpile(raw_sql)
-            set_cached_sql(question, schema_text, final_sql)
+            set_cached_sql(
+                question, schema_text, final_sql,
+                database_fingerprint=fp, dialect=dialect_name, origin_generation_tier=gen_tier
+            )
 
             tokens = response.response_metadata.get("token_usage", {}) if hasattr(response, "response_metadata") else {}
             prompt_tokens = tokens.get("prompt_tokens", 0) or 0
@@ -114,6 +138,7 @@ class SQLGenerator:
             schema_text=schema_text,
             question=question,
             conversation_history=conversation_history,
+            dialect=dialect_name,
         )
         tasks = [
             self.self_consistency_chain.ainvoke(payload)
@@ -136,12 +161,6 @@ class SQLGenerator:
             total_prompt_tokens += tokens.get("prompt_tokens", 0) or 0
             total_completion_tokens += tokens.get("completion_tokens", 0) or 0
 
-            # Transpile (incl. default LIMIT enforcement) *before* validation below,
-            # so the dry-run execution check on each candidate is bounded too -
-            # otherwise every one of the N candidates gets fully executed
-            # unlimited during voting, and only the single winner gets the
-            # LIMIT applied afterwards. transpile() is idempotent (no-op if a
-            # LIMIT is already present) so this is safe to call again later.
             candidates.append(self.validator.transpile(self.validator.sanitize_and_extract(res.content)))
 
         logger.info(
@@ -149,6 +168,19 @@ class SQLGenerator:
         )
 
         if not candidates:
+            if self.fast_generation_chain is not None:
+                logger.warning("All primary candidates failed (e.g. RateLimit). Falling back to fast model...")
+                try:
+                    res = await self.fast_generation_chain.ainvoke(payload)
+                    raw_sql = self.validator.sanitize_and_extract(res.content)
+                    final_sql = self.validator.transpile(raw_sql)
+                    set_cached_sql(
+                        question, schema_text, final_sql,
+                        database_fingerprint=fp, dialect=dialect_name, origin_generation_tier="fast_fallback"
+                    )
+                    return final_sql
+                except Exception as fast_err:
+                    logger.error("Fast model fallback also failed: %s", fast_err)
             raise RuntimeError(f"Failed to generate any SQL candidates. Exceptions encountered: {'; '.join(exceptions)}")
 
         # Validate candidates
@@ -169,7 +201,10 @@ class SQLGenerator:
         if not valid_candidates:
             logger.warning("No self-consistency candidates passed execution validation. Falling back to first candidate.")
             final_sql = self.validator.transpile(candidates[0])
-            set_cached_sql(question, schema_text, final_sql)
+            set_cached_sql(
+                question, schema_text, final_sql,
+                database_fingerprint=fp, dialect=dialect_name, origin_generation_tier=gen_tier
+            )
             return final_sql
 
         votes = {}
@@ -184,7 +219,10 @@ class SQLGenerator:
         logger.info("Self-consistency voting selected SQL query with %d votes.", votes[normalize_sql(best_candidate)]["count"])
 
         final_sql = self.validator.transpile(best_candidate)
-        set_cached_sql(question, schema_text, final_sql)
+        set_cached_sql(
+            question, schema_text, final_sql,
+            database_fingerprint=fp, dialect=dialect_name, origin_generation_tier=gen_tier
+        )
         return final_sql
 
     async def execute_with_repair(
@@ -193,16 +231,33 @@ class SQLGenerator:
         schema_text: str,
         sql: str,
         db: Session,
-        max_fix_attempts: int = 2
+        max_fix_attempts: int = 2,
+        initial_tier: str | None = None,
+        sql_cache_hit: bool | None = None,
     ) -> Tuple[List[dict], str, str | None, str | None, List[str]]:
         """
         Execute `sql`, and if it fails, ask the LLM to repair it up to
         max_fix_attempts times. Returns (rows, final_sql, error_message, error_type, suggestions).
         """
+        fp = self.schema_service._get_db_fingerprint()
+        dialect = getattr(getattr(self.schema_service, "engine", None), "dialect", None)
+        dialect_name = getattr(dialect, "name", "sql") if dialect else "sql"
+
+        gen_meta = getattr(self, "last_generation_meta", {})
+        gen_tier = initial_tier or gen_meta.get("sql_generation_tier", "primary")
+        is_cache_hit = sql_cache_hit if sql_cache_hit is not None else gen_meta.get("sql_cache_hit", False)
+
         # 1. Check results cache first
-        cached_results = get_cached_results(sql)
+        cached_results = get_cached_results(sql, database_fingerprint=fp, dialect=dialect_name)
         if cached_results is not None:
             logger.info("Results cache hit for SQL.")
+            self.last_execution_meta = {
+                "sql_generation_tier": gen_tier,
+                "sql_final_tier": gen_tier,
+                "sql_repair_attempts": 0,
+                "sql_repair_success": True,
+                "sql_cache_hit": is_cache_hit,
+            }
             return cached_results, sql, None, None, []
 
         current_sql = sql
@@ -212,13 +267,16 @@ class SQLGenerator:
             try:
                 rows = self.sql_executor.execute(current_sql, db)
                 # Success! Cache query results before returning
-                set_cached_results(current_sql, rows)
+                set_cached_results(current_sql, rows, database_fingerprint=fp, dialect=dialect_name)
+                final_tier = gen_tier if attempt == 0 else f"{gen_tier}_repair"
+                self.last_execution_meta = {
+                    "sql_generation_tier": gen_tier,
+                    "sql_final_tier": final_tier,
+                    "sql_repair_attempts": attempt,
+                    "sql_repair_success": True,
+                    "sql_cache_hit": is_cache_hit,
+                }
                 if attempt > 0 and last_error:
-                    # Phase 5 (rebuild plan): this succeeded only after a
-                    # repair - the identifier named in `last_error` was
-                    # wrong and `current_sql` now has the right one. Learn
-                    # it for next time. Fire-and-forget: never blocks or
-                    # risks the answer that already succeeded.
                     try:
                         from app.services.schema_learning import record_repair_correction
                         await record_repair_correction(self.repair_engine.schema_service, last_error, current_sql)
@@ -239,24 +297,47 @@ class SQLGenerator:
 
                 fixed_sql = await self.fix_sql(
                     question=question,
-                    schema_text=schema_text,
+                    schema_text=filter_schema_by_query(schema_text, current_sql),
                     failed_sql=current_sql,
                     error=last_error,
+                    dialect=dialect_name,
                 )
 
                 reason = self.unanswerable_reason(fixed_sql)
                 if reason:
+                    self.last_execution_meta = {
+                        "sql_generation_tier": gen_tier,
+                        "sql_final_tier": f"{gen_tier}_failed",
+                        "sql_repair_attempts": attempt + 1,
+                        "sql_repair_success": False,
+                        "sql_cache_hit": is_cache_hit,
+                    }
                     return [], fixed_sql, f"UNANSWERABLE: {reason}", "schema", []
 
                 fixed_validation = self.validator.validate_safety(fixed_sql)
                 if not fixed_validation["valid"]:
+                    self.last_execution_meta = {
+                        "sql_generation_tier": gen_tier,
+                        "sql_final_tier": f"{gen_tier}_failed",
+                        "sql_repair_attempts": attempt + 1,
+                        "sql_repair_success": False,
+                        "sql_cache_hit": is_cache_hit,
+                    }
                     return [], fixed_sql, fixed_validation["reason"], fixed_validation.get("query_type"), []
 
                 current_sql = self.validator.transpile(fixed_sql)
 
         # If we got here, all attempts failed. Analyze the error.
         error_type, suggestions = self.analyze_db_error(last_error)
+        self.last_execution_meta = {
+            "sql_generation_tier": gen_tier,
+            "sql_final_tier": f"{gen_tier}_failed",
+            "sql_repair_attempts": max_fix_attempts,
+            "sql_repair_success": False,
+            "sql_cache_hit": is_cache_hit,
+        }
         return [], current_sql, last_error, error_type, suggestions
+
 
     async def fix_sql(
         self,
@@ -264,6 +345,7 @@ class SQLGenerator:
         schema_text: str,
         failed_sql: str,
         error: str,
+        dialect: str = "sqlite",
     ) -> str:
         """Ask the LLM to repair a failed SQL query once."""
         return await self.repair_engine.fix_sql(
@@ -271,6 +353,7 @@ class SQLGenerator:
             schema_text=schema_text,
             failed_sql=failed_sql,
             error=error,
+            dialect=dialect,
         )
 
     def analyze_db_error(self, error_msg: str) -> Tuple[str, List[str]]:
@@ -280,7 +363,7 @@ class SQLGenerator:
     @staticmethod
     def unanswerable_reason(sql: str) -> str | None:
         """Return the reason text if `sql` is the UNANSWERABLE sentinel, else None."""
-        return GroundingEngine.unanswerable_reason(sql)
+        return AnswerabilityChecker.unanswerable_reason(sql)
 
     def extract_sql(self, text: str) -> str:
         """Extract SQL query from LLM response, handling markdown fences."""

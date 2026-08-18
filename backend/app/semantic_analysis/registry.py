@@ -1,1 +1,0 @@
-from app.semantic_analysis.factory import AnalyzerRegistry

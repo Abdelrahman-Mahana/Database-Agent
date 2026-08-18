@@ -570,11 +570,12 @@ function ChatContent() {
       const assistantMsg: MessageItem = {
         id: `assistant-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
         sender: "assistant",
-        text: data.report || fallbackText,
+        text: data.answer || data.report || fallbackText,
         response: data,
         questionLang: qLang,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
+
       setMessages((prev) => [...prev, assistantMsg]);
     },
     onError: (error: any, messageText: string) => {
@@ -751,7 +752,19 @@ function ChatContent() {
                     )}
                   >
                     {msg.sender === "assistant" ? (
-                      <FormattedReportText text={msg.text} isRtl={isRtl} />
+                      <>
+                        {msg.response?.warnings && msg.response.warnings.length > 0 && (
+                          <div className="mb-4 space-y-2">
+                            {msg.response.warnings.map((w, idx) => (
+                              <div key={idx} className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded-md text-sm flex items-start gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+                                <span>{w}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <FormattedReportText text={msg.text} isRtl={isRtl} />
+                      </>
                     ) : (
                       <p className="whitespace-pre-wrap">{msg.text}</p>
                     )}

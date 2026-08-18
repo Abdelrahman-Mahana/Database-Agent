@@ -13,11 +13,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from cryptography.fernet import Fernet
 from pydantic import BaseModel
 from sqlalchemy import create_engine, inspect, text
+from app.config.settings import settings
 
 
 def _get_fernet_key() -> bytes:
     """Derive a stable 32-byte url-safe base64 key from environment SECRET_KEY or fallback."""
-    raw_secret = os.getenv("SECRET_KEY", "database-analyst-agent-default-secure-key-2026")
+    raw_secret = settings.secret_key
     key_bytes = hashlib.sha256(raw_secret.encode("utf-8")).digest()
     return base64.urlsafe_b64encode(key_bytes)
 
@@ -38,8 +39,7 @@ class ConnectionManager:
 
     def __init__(self, storage_path: Optional[Path] = None):
         if storage_path is None:
-            backend_dir = Path(__file__).resolve().parents[2]
-            storage_path = backend_dir / "connection_profiles.json"
+            storage_path = Path(settings.connection_profiles_dir) / "connection_profiles.json"
         self.storage_path = storage_path
         self._fernet = Fernet(_get_fernet_key())
 
@@ -166,7 +166,16 @@ class ConnectionManager:
                 return False, f"MongoDB connection error: {msg}", {}
         else:
             try:
-                engine = create_engine(url, pool_pre_ping=True, connect_args={"connect_timeout": 5} if "sqlite" not in url else {})
+                connect_args = {}
+                if "postgres" in url:
+                    connect_args["connect_timeout"] = 5
+                    connect_args["options"] = "-c statement_timeout=5000"
+                elif "mysql" in url:
+                    connect_args["connect_timeout"] = 5
+                elif "sqlite" not in url:
+                    connect_args["timeout"] = 5
+
+                engine = create_engine(url, pool_pre_ping=True, connect_args=connect_args)
                 with engine.connect() as conn:
                     conn.execute(text("SELECT 1"))
                 insp = inspect(engine)
@@ -252,6 +261,15 @@ class ConnectionManager:
         # Sort newest first
         res.sort(key=lambda x: x["updated_at"], reverse=True)
         return res
+
+    def delete_profile(self, connection_id: str) -> bool:
+        """Delete a saved connection profile by ID."""
+        profiles = self._read_profiles()
+        if connection_id in profiles:
+            del profiles[connection_id]
+            self._write_profiles(profiles)
+            return True
+        return False
 
     def _read_profiles(self) -> Dict[str, Any]:
         if not self.storage_path.exists():

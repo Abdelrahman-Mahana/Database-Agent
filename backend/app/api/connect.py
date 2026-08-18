@@ -32,37 +32,52 @@ def _get_backend_dir() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+from app.database.db import current_session_id
+
 def _reset_and_get_schema_service(engine) -> SchemaService:
-    SchemaService.clear_cache()
-    clear_all_caches()
-    memory_manager.clear_all()
+    # Memory should be isolated by tenant; do not wipe other users' sessions.
+    # Schema caches are keyed by database fingerprint, so no need to wipe them either.
+    session_id = current_session_id.get()
+    memory_manager.clear_memory(session_id)
     return SchemaService(bind_engine=engine)
 
 
 def _build_schema_response(schema_service: SchemaService, connection_id: str | None = None) -> SchemaResponse:
-    schema = schema_service.get_schema()
-    schema_text = schema_service.get_schema_text()
+    # Do not call get_schema() or get_schema_text() here because it synchronously
+    # introspects the whole database and blocks the event loop on large databases.
+    # The frontend only needs database_name, database_type, and connection_id to proceed.
     db_name = schema_service.get_database_name()
     db_type = schema_service.get_database_type()
-    questions = schema_service.get_recommended_questions()
-    explorer_data = schema_service.get_explorer_data()
+    
+    # We still want to get a basic fingerprint without full introspection if possible,
+    # but _get_db_fingerprint currently relies on the URL, which is fast.
+    fingerprint = schema_service._get_db_fingerprint()
 
     return SchemaResponse(
-        database_schema=schema,
-        schema_text=schema_text,
+        database_schema={},
+        schema_text="Schema profiling in progress...",
         database_url=connection_manager.mask_connection_url(str(schema_service.engine.url)),
         database_name=db_name,
         database_type=db_type,
-        recommended_questions=questions,
-        tables=explorer_data.get("tables", []),
-        views=explorer_data.get("views", []),
-        procedures=explorer_data.get("procedures", []),
-        collections=explorer_data.get("collections", []),
-        schema_tree=explorer_data.get("schema_tree", []),
-        summary=explorer_data.get("summary", {}),
+        recommended_questions=[],
+        tables=[],
+        views=[],
+        procedures=[],
+        collections=[],
+        schema_tree=[],
+        summary={"objects": 0, "catalogs": 1, "schemas": 1, "tables": 0},
         cache_hit=False,
         connection_id=connection_id,
+        fingerprint=fingerprint,
     )
+
+@router.get("/progress/{fingerprint}")
+async def get_profiling_progress(fingerprint: str):
+    from app.schema_catalog.catalog_builder import get_build_progress
+    progress = get_build_progress(fingerprint)
+    if not progress:
+        return {"status": "unknown", "progress_percent": 0.0}
+    return progress
 
 
 @router.post("/validate", response_model=ConnectionValidationResponse)
@@ -148,6 +163,15 @@ async def list_saved_profiles():
     return {"profiles": profiles}
 
 
+@router.delete("/profiles/{connection_id}")
+async def delete_saved_profile(connection_id: str):
+    """Delete a saved encrypted connection profile."""
+    success = connection_manager.delete_profile(connection_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Profile not found.")
+    return {"status": "success", "message": "Profile deleted."}
+
+
 @router.post("/reconnect/{connection_id}", response_model=SchemaResponse)
 async def reconnect_profile(connection_id: str, background_tasks: BackgroundTasks):
     """Reconnect using a saved encrypted profile ID."""
@@ -210,21 +234,7 @@ async def connect_by_url(body: ConnectURLRequest, background_tasks: BackgroundTa
         engine = set_database_url(db_url)
         schema_service = _reset_and_get_schema_service(engine)
         background_tasks.add_task(onboard_database, schema_service)
-
-        schema = schema_service.get_schema()
-        schema_text = schema_service.get_schema_text()
-        db_name = schema_service.get_database_name()
-        db_type = schema_service.get_database_type()
-        questions = schema_service.get_recommended_questions()
-
-        return SchemaResponse(
-            database_schema=schema,
-            schema_text=schema_text,
-            database_url=str(engine.url),
-            database_name=db_name,
-            database_type=db_type,
-            recommended_questions=questions,
-        )
+        return _build_schema_response(schema_service, None)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to connect to database: {str(e)}")
 
@@ -245,21 +255,7 @@ async def connect_by_preset(body: ConnectPresetRequest, background_tasks: Backgr
         engine = set_database_url(db_url)
         schema_service = _reset_and_get_schema_service(engine)
         background_tasks.add_task(onboard_database, schema_service)
-
-        schema = schema_service.get_schema()
-        schema_text = schema_service.get_schema_text()
-        db_name = schema_service.get_database_name()
-        db_type = schema_service.get_database_type()
-        questions = schema_service.get_recommended_questions()
-
-        return SchemaResponse(
-            database_schema=schema,
-            schema_text=schema_text,
-            database_url=str(engine.url),
-            database_name=db_name,
-            database_type=db_type,
-            recommended_questions=questions,
-        )
+        return _build_schema_response(schema_service, None)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to load database file: {str(e)}")
 
@@ -293,20 +289,6 @@ async def connect_by_upload(background_tasks: BackgroundTasks, file: UploadFile 
         engine = set_database_url(db_url)
         schema_service = _reset_and_get_schema_service(engine)
         background_tasks.add_task(onboard_database, schema_service)
-
-        schema = schema_service.get_schema()
-        schema_text = schema_service.get_schema_text()
-        db_name = schema_service.get_database_name()
-        db_type = schema_service.get_database_type()
-        questions = schema_service.get_recommended_questions()
-
-        return SchemaResponse(
-            database_schema=schema,
-            schema_text=schema_text,
-            database_url=str(engine.url),
-            database_name=db_name,
-            database_type=db_type,
-            recommended_questions=questions,
-        )
+        return _build_schema_response(schema_service, None)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to load uploaded SQLite database: {str(e)}")

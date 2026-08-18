@@ -96,7 +96,7 @@ def get_target_dialect() -> str:
     """Determine target SQL dialect dynamically from active database engine."""
     from app.database import db
     try:
-        name = db.engine.dialect.name.lower()
+        name = db.get_engine().dialect.name.lower()
         if name in ("postgres", "postgresql"):
             return "postgres"
         elif name in ("mysql", "mariadb"):

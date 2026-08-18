@@ -1,15 +1,22 @@
 """Schema Grounding Engine — discovers minimal required schema subsets and join paths."""
 from typing import Any, Dict, Optional, Set
+
+from loguru import logger
+
 from app.services.sql_service import SchemaService
 from app.semantic.models import QueryUnderstanding
 from app.schema_grounding.models import GroundedSchema
+from app.schema_grounding.schema_intelligence import (
+    SchemaIntelligenceCache,
+    compute_structural_schema_fingerprint,
+)
 from app.schema_grounding.relationship_graph import SchemaRelationshipGraph
 from app.schema_grounding.schema_pruner import SchemaPruner
 from app.utils.text_processor import AnalysisType, COMPLEX_ANALYSIS_TYPES
 from app.schema_grounding.arabic_terms import expand_with_arabic_terms
 from app.schema_catalog.models import SchemaCatalog
-from app.schema_catalog.retrieval import retrieve_relevant_tables
-from app.core.config import settings
+from app.schema_catalog.retrieval import retrieve_relevant_tables, retrieve_relevant_tables_async
+from app.config.settings import settings
 
 # COMPARISON/RANKING questions frequently name only one side of a metric
 # ("compare employees", "top artists") while the actual metric lives in a
@@ -54,35 +61,85 @@ class SchemaGroundingEngine:
         analysis_type: Optional[AnalysisType] = None,
         catalog: Optional[SchemaCatalog] = None,
     ) -> GroundedSchema:
+        """Sync version of build_grounded_schema. Uses sync retrieve_relevant_tables."""
+        return self._build_grounded_schema_internal(
+            schema, query_understanding, question, analysis_type, catalog, is_async=False
+        )
+
+    async def build_grounded_schema_async(
+        self,
+        schema: Optional[Dict[str, Any]] = None,
+        query_understanding: Optional[QueryUnderstanding] = None,
+        question: Optional[str] = None,
+        analysis_type: Optional[AnalysisType] = None,
+        catalog: Optional[SchemaCatalog] = None,
+    ) -> GroundedSchema:
+        """Async version of build_grounded_schema for use in running event loops."""
+        # For large schemas requiring async retrieval:
+        _MAX_SEED_TABLES = getattr(settings, "grounding_max_seed_tables", 5)
+        async_retrieved = None
+        if question and catalog is not None and schema and len(schema) > settings.large_schema_table_threshold:
+            db_ctx = self.schema_service.get_database_context() if schema is None else None
+            cached_retriever = db_ctx.tfidf_retriever if db_ctx else None
+            cached_emb_retriever = db_ctx.embedding_retriever if db_ctx else None
+            async_retrieved = await retrieve_relevant_tables_async(
+                question, catalog, k=_MAX_SEED_TABLES,
+                cached_retriever=cached_retriever,
+                cached_embedding_retriever=cached_emb_retriever,
+            )
+
+        return self._build_grounded_schema_internal(
+            schema, query_understanding, question, analysis_type, catalog, is_async=True, pre_retrieved=async_retrieved
+        )
+
+    def _build_grounded_schema_internal(
+        self,
+        schema: Optional[Dict[str, Any]] = None,
+        query_understanding: Optional[QueryUnderstanding] = None,
+        question: Optional[str] = None,
+        analysis_type: Optional[AnalysisType] = None,
+        catalog: Optional[SchemaCatalog] = None,
+        is_async: bool = False,
+        pre_retrieved: Optional[list] = None,
+    ) -> GroundedSchema:
         """
         Build a compact GroundedSchema object containing only relevant tables and join paths.
-
-        Args:
-            schema: Optional full database schema dict. If None, fetched via SchemaService.
-            query_understanding: Optional QueryUnderstanding object containing entities and metrics.
-            question: Optional user question string to match against tables/columns.
-            analysis_type: Optional classification (see app.utils.text_processor). When the
-                type is COMPARISON/TREND/ROOT_CAUSE/MULTI_STEP/RANKING, seed tables are
-                widened by one FK hop — these question types routinely name only one side
-                of the join the SQL actually needs (e.g. "compare employees" needs the
-                linked Orders table to compute anything comparable).
-            catalog: Optional Schema Catalog (Phase 1). When the schema is large
-                (> settings.large_schema_table_threshold tables) and the catalog has a
-                built glossary (Phase 1/2), Phase 3's TF-IDF retrieval replaces the blind
-                FK-centrality fallback for questions that matched no literal seed table.
-
-        Returns:
-            GroundedSchema: Minimal grounded schema object with compact schema_text.
         """
+        import time
+        t_grounding_start = time.perf_counter()
+
+        db_ctx = None
         if schema is None:
-            schema = self.schema_service.get_schema()
+            db_ctx = self.schema_service.get_database_context()
+            schema = db_ctx.schema
+            fingerprint = db_ctx.fingerprint
+            catalog = catalog or db_ctx.catalog
+        else:
+            fingerprint = compute_structural_schema_fingerprint(schema)
 
         if not schema:
             return GroundedSchema()
 
-        graph = SchemaRelationshipGraph(schema)
+        # If DatabaseContext has pre-built join graph and retrievers, use them instantly (0ms)
+        cached_emb_retriever = None
+        if db_ctx and db_ctx.relationship_graph:
+            graph = db_ctx.relationship_graph
+            cached_retriever = db_ctx.tfidf_retriever
+            cached_emb_retriever = db_ctx.embedding_retriever
+            intel_hit = True
+            intel_lookup_ms = 0.0
+            intel_build_ms = 0.0
+        else:
+            bundle, intel_hit, intel_lookup_ms, intel_build_ms = SchemaIntelligenceCache.get_or_build(
+                fingerprint, schema, catalog=catalog
+            )
+            graph = bundle.relationship_graph
+            cached_retriever = bundle.tfidf_retriever
+            cached_emb_retriever = getattr(bundle, "embedding_retriever", None)
 
         # Extract target seed tables
+        t_tab_start = time.perf_counter()
+
         seed_tables: Set[str] = set()
 
         if query_understanding:
@@ -98,81 +155,96 @@ class SchemaGroundingEngine:
                     if t_name in schema:
                         seed_tables.add(t_name)
 
+        is_large_schema = len(schema) > settings.large_schema_table_threshold
+        # Maximum seed tables (3-5) and final tables (3-8) to send to LLM
+        _MAX_SEED_TABLES = getattr(settings, "grounding_max_seed_tables", 5)
+        _MAX_FINAL_TABLES = getattr(settings, "grounding_max_final_tables", 8)
+
+        table_retrieval_ms = 0.0
+        column_retrieval_ms = 0.0
+        fallback_triggered = False
+
         if question:
-            # Zero-cost: append English equivalents for common Arabic business
-            # nouns (عميل->customer, طلب->order, ...) BEFORE literal matching,
-            # so Arabic questions match English table/column names without
-            # needing the (LLM-built) glossary to exist yet.
             q_lower = expand_with_arabic_terms(question.lower())
-            for table_name, info in schema.items():
-                t_lower = table_name.lower()
-                # Match table name or singular/plural forms
-                if (
-                    t_lower in q_lower
-                    or (t_lower + "s") in q_lower
-                    or (t_lower + "es") in q_lower
-                    or (t_lower.endswith("y") and t_lower[:-1] + "ies" in q_lower)
-                    or (q_lower.endswith("s") and q_lower[:-1] == t_lower)
-                    # Reverse direction: many schemas name tables in the
-                    # plural already (Categories, Products); a question
-                    # phrased in the singular ("per category") wouldn't
-                    # match t_lower directly without this.
-                    or (t_lower.endswith("ies") and (t_lower[:-3] + "y") in q_lower)
-                    or (t_lower.endswith("es") and t_lower[:-2] in q_lower and len(t_lower) > 4)
-                    or (t_lower.endswith("s") and not t_lower.endswith("ss") and t_lower[:-1] in q_lower and len(t_lower) > 4)
-                ):
-                    seed_tables.add(table_name)
+
+            # For large schemas, try pre-indexed TF-IDF / embedding retrieval FIRST
+            if is_large_schema and catalog is not None:
+                t_tfidf_start = time.perf_counter()
+                if pre_retrieved is not None:
+                    retrieved = pre_retrieved
                 else:
-                    # Match column names
+                    retrieved = retrieve_relevant_tables(
+                        question, catalog, k=_MAX_SEED_TABLES,
+                        cached_retriever=cached_retriever,
+                        cached_embedding_retriever=cached_emb_retriever,
+                    )
+                table_retrieval_ms += (time.perf_counter() - t_tfidf_start) * 1000
+                if retrieved:
+                    seed_tables.update(t for t in retrieved if t in schema)
+
+            # Fast 0ms inverted keyword index lookup from RAM (replaces linear table/column scan)
+            t_literal_tab_start = time.perf_counter()
+            if db_ctx and db_ctx.keyword_to_tables and len(seed_tables) < _MAX_SEED_TABLES:
+                fast_matches = db_ctx.match_seed_tables_fast(q_lower, max_tables=_MAX_SEED_TABLES)
+                seed_tables.update(fast_matches)
+                table_retrieval_ms += (time.perf_counter() - t_literal_tab_start) * 1000
+            else:
+                # Fallback to linear scan only if db_ctx not available
+                for table_name in schema.keys():
+                    if len(seed_tables) >= _MAX_SEED_TABLES:
+                        break
+                    t_lower = table_name.lower()
+                    if (
+                        t_lower in q_lower
+                        or (t_lower + "s") in q_lower
+                        or (t_lower + "es") in q_lower
+                        or (t_lower.endswith("y") and t_lower[:-1] + "ies" in q_lower)
+                        or (q_lower.endswith("s") and q_lower[:-1] == t_lower)
+                        or (t_lower.endswith("ies") and (t_lower[:-3] + "y") in q_lower)
+                        or (t_lower.endswith("es") and t_lower[:-2] in q_lower and len(t_lower) > 4)
+                        or (t_lower.endswith("s") and not t_lower.endswith("ss") and t_lower[:-1] in q_lower and len(t_lower) > 4)
+                    ):
+                        seed_tables.add(table_name)
+                table_retrieval_ms += (time.perf_counter() - t_literal_tab_start) * 1000
+
+                t_col_start = time.perf_counter()
+                for table_name, info in schema.items():
+                    if len(seed_tables) >= _MAX_SEED_TABLES:
+                        break
+                    min_col_len = 6 if is_large_schema else 4
                     matched = False
                     for col in info.get("columns", []):
                         col_lower = col["name"].lower()
-                        if len(col_lower) > 3 and col_lower in q_lower:
+                        if len(col_lower) >= min_col_len and col_lower in q_lower:
                             seed_tables.add(table_name)
                             matched = True
                             break
-                    # Match column SAMPLE VALUES (e.g. question says "Canada",
-                    # the column is named "Country" but the sample values —
-                    # already captured by SchemaService — include "Canada").
-                    # Without this, value-based questions ("compare sales in
-                    # the USA vs Canada") only ground whichever table happens
-                    # to have a coincidentally-matching column name (e.g.
-                    # "Total"), and silently miss the table the filter
-                    # actually applies to.
-                    if not matched:
-                        for col in info.get("columns", []):
-                            for sample in col.get("samples", []) or []:
-                                sample_lower = str(sample).strip().lower()
-                                if len(sample_lower) > 2 and sample_lower in q_lower:
-                                    seed_tables.add(table_name)
-                                    matched = True
-                                    break
-                            if matched:
-                                break
+                column_retrieval_ms = (time.perf_counter() - t_col_start) * 1000
 
-        # If no seeds identified, keep all tables as fallback
+        # Complete initial table retrieval timing
+        table_retrieval_ms += (time.perf_counter() - t_tab_start) * 1000 - table_retrieval_ms - column_retrieval_ms
+
+        # If no seeds identified, select bounded subset (3-5 tables max, never full database)
         if not seed_tables:
-            if len(schema) > settings.large_schema_table_threshold:
+            if len(schema) <= 6:
+                seed_tables = set(schema.keys())
+            else:
                 if question and catalog is not None:
-                    retrieved = retrieve_relevant_tables(question, catalog, k=settings.retrieval_top_k_tables)
+                    t_tab_start = time.perf_counter()
+                    if pre_retrieved is not None:
+                        retrieved = pre_retrieved
+                    else:
+                        retrieved = retrieve_relevant_tables(
+                            question, catalog, k=_MAX_SEED_TABLES, cached_retriever=cached_retriever
+                        )
+                    table_retrieval_ms += (time.perf_counter() - t_tab_start) * 1000
                     if retrieved:
                         seed_tables = {t for t in retrieved if t in schema}
                 if not seed_tables:
-                    # No catalog/glossary yet, or TF-IDF found no vocabulary
-                    # overlap at all — fall back to blind FK-centrality
-                    # ranking rather than returning nothing.
-                    seed_tables = graph.get_most_central_tables(limit=15)
-            else:
-                seed_tables = set(schema.keys())
+                    # Fall back to top FK-centrality ranking (capped to 4-5 tables)
+                    seed_tables = set(graph.get_most_central_tables(limit=_MAX_SEED_TABLES))
+                    fallback_triggered = True
         elif analysis_type in _NEEDS_NEIGHBOR_EXPANSION:
-            # Widen by one FK hop for question types that typically need a
-            # linked table the question text didn't literally name — but
-            # only pull in neighbors that actually carry a metric (a numeric,
-            # non-key column). Pulling every FK-connected table indiscriminately
-            # (junction/lookup tables like EmployeeTerritories, CustomerDemo)
-            # widens recall but also reintroduces the token bloat this whole
-            # grounding step exists to avoid, for zero benefit — those tables
-            # have nothing to aggregate or compare.
             widened = set(seed_tables)
             for t in seed_tables:
                 for neighbor in graph.get_direct_neighbors(t):
@@ -180,8 +252,70 @@ class SchemaGroundingEngine:
                         widened.add(neighbor)
             seed_tables = widened
 
+        # Cap seed tables to 3-5 tables
+        if len(seed_tables) > _MAX_SEED_TABLES:
+            entity_set = set()
+            if query_understanding:
+                entity_set = set(query_understanding.entities)
+            prioritized = sorted(
+                seed_tables,
+                key=lambda t: (t in entity_set, len(graph.adj_list.get(t, []))),
+                reverse=True,
+            )
+            seed_tables = set(prioritized[:_MAX_SEED_TABLES])
+
+        logger.debug(
+            "Schema grounding: %d seed tables selected from %d total",
+            len(seed_tables), len(schema),
+        )
+
         # Expand seed tables through shortest foreign-key join paths
+        t_rel_start = time.perf_counter()
         minimal_tables = graph.get_minimal_connecting_tables(seed_tables)
 
-        # Prune and format compact schema text
-        return self.pruner.prune_and_format(schema, minimal_tables, graph.relationships)
+        # Enforce strict 3-8 table cap on minimal_tables while preserving bridge tables
+        if len(minimal_tables) > _MAX_FINAL_TABLES:
+            # Active degree inside minimal_tables
+            m_degree = {t: sum(1 for n, _, _ in graph.adj_list.get(t, []) if n in minimal_tables) for t in minimal_tables}
+            ranked = sorted(
+                minimal_tables,
+                key=lambda t: (
+                    t in seed_tables,         # 1. Keep requested seed tables
+                    m_degree.get(t, 0) >= 2,  # 2. Keep bridge / junction tables connecting the paths
+                    m_degree.get(t, 0),       # 3. Keep higher degree hubs
+                ),
+                reverse=True,
+            )
+            minimal_tables = set(ranked[:_MAX_FINAL_TABLES])
+
+        relationship_expansion_ms = (time.perf_counter() - t_rel_start) * 1000
+
+        # Prune and format compact schema text with explicit join paths and column pruning
+        t_prune_start = time.perf_counter()
+        grounded = self.pruner.prune_and_format(
+            schema,
+            minimal_tables,
+            graph.relationships,
+            seed_tables=seed_tables,
+            query_understanding=query_understanding,
+        )
+
+        schema_pruning_ms = (time.perf_counter() - t_prune_start) * 1000
+
+        grounding_ms = (time.perf_counter() - t_grounding_start) * 1000
+
+        grounded.retrieved_seed_tables = sorted(list(seed_tables))
+        grounded.timings_ms = {
+            "table_retrieval_ms": table_retrieval_ms,
+            "column_retrieval_ms": column_retrieval_ms,
+            "relationship_expansion_ms": relationship_expansion_ms,
+            "schema_pruning_ms": schema_pruning_ms,
+            "schema_grounding_ms": grounding_ms,
+            "schema_intelligence_cache_lookup_ms": round(intel_lookup_ms, 2),
+            "schema_intelligence_build_ms": round(intel_build_ms, 2),
+            "schema_intelligence_cache_hit": intel_hit,
+        }
+        if fallback_triggered:
+            grounded.fallback_used = True
+
+        return grounded

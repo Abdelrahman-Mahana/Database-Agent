@@ -42,26 +42,50 @@ class SemanticQueryParser:
         dimensions: List[str] = []
 
         if schema:
-            for table_name, table_info in schema.items():
-                # Match table name or singular form
-                t_lower = table_name.lower()
-                t_singular = t_lower.rstrip("s")
-                if t_lower in q_lower or (len(t_singular) > 3 and t_singular in q_lower):
-                    entities.append(table_name)
+            words = set(re.findall(r'[\w\u0600-\u06FF]+', q_lower))
+            if len(schema) > 30:
+                # Fast path for large schemas: token-indexed filtering
+                candidate_tables = [
+                    t for t in schema.keys()
+                    if t.lower() in words or t.lower().rstrip("s") in words or t.lower() in q_lower
+                ]
+                for t in candidate_tables:
+                    entities.append(t)
+                    table_info = schema.get(t, {})
+                    for col in table_info.get("columns", []):
+                        col_name = col["name"]
+                        c_lower = col_name.lower()
+                        if (c_lower in words or c_lower in q_lower) and c_lower not in ("id", "created_at"):
+                            col_type = col.get("type", "").upper()
+                            is_numeric = any(num_t in col_type for num_t in ("INT", "FLOAT", "DOUBLE", "NUMERIC", "DECIMAL", "REAL"))
+                            full_ref = f"{t}.{col_name}"
+                            if is_numeric:
+                                if full_ref not in metrics:
+                                    metrics.append(full_ref)
+                            else:
+                                if full_ref not in dimensions:
+                                    dimensions.append(full_ref)
+            else:
+                for table_name, table_info in schema.items():
+                    # Match table name or singular form
+                    t_lower = table_name.lower()
+                    t_singular = t_lower.rstrip("s")
+                    if t_lower in q_lower or (len(t_singular) > 3 and t_singular in q_lower):
+                        entities.append(table_name)
 
-                for col in table_info.get("columns", []):
-                    col_name = col["name"]
-                    c_lower = col_name.lower()
-                    if c_lower in q_lower and c_lower not in ("id", "created_at"):
-                        col_type = col.get("type", "").upper()
-                        is_numeric = any(num_t in col_type for num_t in ("INT", "FLOAT", "DOUBLE", "NUMERIC", "DECIMAL", "REAL"))
-                        full_ref = f"{table_name}.{col_name}"
-                        if is_numeric:
-                            if full_ref not in metrics:
-                                metrics.append(full_ref)
-                        else:
-                            if full_ref not in dimensions:
-                                dimensions.append(full_ref)
+                    for col in table_info.get("columns", []):
+                        col_name = col["name"]
+                        c_lower = col_name.lower()
+                        if c_lower in q_lower and c_lower not in ("id", "created_at"):
+                            col_type = col.get("type", "").upper()
+                            is_numeric = any(num_t in col_type for num_t in ("INT", "FLOAT", "DOUBLE", "NUMERIC", "DECIMAL", "REAL"))
+                            full_ref = f"{table_name}.{col_name}"
+                            if is_numeric:
+                                if full_ref not in metrics:
+                                    metrics.append(full_ref)
+                            else:
+                                if full_ref not in dimensions:
+                                    dimensions.append(full_ref)
 
         # 3. Extract Aggregations
         aggregations: List[str] = []
@@ -119,6 +143,15 @@ class SemanticQueryParser:
         elif analysis_type == AnalysisType.LOOKUP and len(entities) == 1 and not metrics:
             expected_output = OutputFormat.LIST
 
+        # 8. Compute Confidence Score
+        confidence = 0.2
+        if entities and (metrics or aggregations or dimensions):
+            confidence = 0.95
+        elif entities:
+            confidence = 0.8
+        elif analysis_type != AnalysisType.UNKNOWN or aggregations:
+            confidence = 0.6
+
         return QueryUnderstanding(
             raw_question=q,
             analysis_type=analysis_type,
@@ -131,4 +164,6 @@ class SemanticQueryParser:
             sorting=sorting,
             limit=limit,
             expected_output=expected_output,
+            confidence=confidence,
+            source="regex",
         )

@@ -1,8 +1,34 @@
-.venv/
-.env
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Project Data
+backend/data/
+*.db
+!backend/chinook.db
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node (frontend)
 node_modules/
 .next/
-*.log
-.DS_Store
+out/
+build/
+dist/

@@ -27,7 +27,7 @@ from typing import Optional
 from loguru import logger
 
 from app.schema_catalog.models import SchemaCatalog
-from app.core.config import settings
+from app.config.settings import settings
 
 _TOKEN_RE = re.compile(r"[\w\u0600-\u06FF]+", re.UNICODE)
 _STOPWORDS = {
@@ -97,14 +97,8 @@ class TfidfTableRetriever:
             return 0.0
         return dot / (norm_a * norm_b)
 
-    def top_k(self, question: str, k: int = 12) -> list[str]:
-        """Return up to `k` table names ranked by relevance to `question`.
-
-        Falls back to an empty list (letting the caller decide the next
-        fallback, e.g. FK-centrality) if the question shares no vocabulary
-        at all with any table's document — better than confidently
-        returning irrelevant top-ranked noise.
-        """
+    def top_k_with_scores(self, question: str, k: int = 12) -> list[tuple[str, float]]:
+        """Return up to `k` (table_name, score) tuples ranked by relevance."""
         q_tokens = _tokenize(question)
         if not q_tokens:
             return []
@@ -114,37 +108,94 @@ class TfidfTableRetriever:
         if not scored:
             return []
         scored.sort(key=lambda pair: pair[1], reverse=True)
-        return [t for t, _ in scored[:k]]
+        return scored[:k]
+
+    def top_k(self, question: str, k: int = 12) -> list[str]:
+        """Return up to `k` table names ranked by relevance to `question`."""
+        scored = self.top_k_with_scores(question, k=k)
+        return [t for t, _ in scored]
 
 
 def retrieve_relevant_tables(
     question: str,
     catalog: Optional[SchemaCatalog],
     k: int = 12,
+    cached_retriever: Optional[TfidfTableRetriever] = None,
+    cached_embedding_retriever: Optional[Any] = None,
 ) -> list[str]:
-    """Convenience entry point used by the grounding engine.
-
-    Returns [] (meaning: "no opinion, use the next fallback") when there's
-    no usable catalog/glossary yet, or when nothing scored above zero.
-
-    Phase 3: when `settings.schema_retrieval_method == "embedding"` and the
-    catalog actually has precomputed table embeddings, tries real semantic
-    (cosine-similarity) retrieval first. Any failure there (embeddings not
-    built yet for this catalog, embedding API unreachable at query time,
-    no vocabulary overlap) transparently falls through to the TF-IDF
-    retriever below - this function's return contract never changes.
     """
-    if catalog is None or not catalog.glossary_enriched or not catalog.tables:
+    Hybrid Retrieval:
+    1. Fast Lexical (TF-IDF) matching first (0ms, 0 tokens).
+    2. Returns immediately if lexical retrieval finds confident candidate tables.
+    3. Triggers Semantic / Vector embedding retrieval only when lexical results are insufficient.
+    """
+    if catalog is None or not catalog.tables:
         return []
 
-    if settings.schema_retrieval_method == "embedding" and catalog.embeddings_built:
+    # 1. Lexical fast path
+    retriever = cached_retriever or TfidfTableRetriever(catalog)
+    lexical_scored = retriever.top_k_with_scores(question, k=k)
+    lexical_hits = [t for t, _ in lexical_scored]
+
+    # Confident lexical matches (>= 2 hits or top score >= 0.25) -> return immediately
+    if len(lexical_hits) >= 2 or (lexical_hits and lexical_scored[0][1] >= 0.25):
+        return lexical_hits[:k]
+
+    # 2. Semantic / Vector fallback when lexical is sparse or insufficient
+    if catalog.embeddings_built:
         try:
             from app.schema_catalog.embedding_retrieval import EmbeddingTableRetriever
-            hits = EmbeddingTableRetriever(catalog).top_k(question, k=k)
-            if hits:
-                return hits
+            emb_retriever = cached_embedding_retriever or EmbeddingTableRetriever(catalog)
+            semantic_hits = emb_retriever.top_k(question, k=k)
+            if semantic_hits:
+                combined = []
+                for t in lexical_hits + semantic_hits:
+                    if t not in combined:
+                        combined.append(t)
+                return combined[:k]
         except Exception as e:
-            logger.debug("Embedding retrieval failed, falling back to TF-IDF: %s", e)
+            logger.debug(f"Semantic embedding retrieval failed: {e}")
 
-    retriever = TfidfTableRetriever(catalog)
-    return retriever.top_k(question, k=k)
+    return lexical_hits[:k]
+
+
+async def retrieve_relevant_tables_async(
+    question: str,
+    catalog: Optional[SchemaCatalog],
+    k: int = 12,
+    cached_retriever: Optional[TfidfTableRetriever] = None,
+    cached_embedding_retriever: Optional[Any] = None,
+) -> list[str]:
+    """
+    Async Hybrid Retrieval:
+    1. Fast Lexical (TF-IDF) matching first (0ms, 0 tokens).
+    2. Fallback to Semantic / Vector embedding retrieval only when needed.
+    """
+    if catalog is None or not catalog.tables:
+        return []
+
+    # 1. Lexical fast path
+    retriever = cached_retriever or TfidfTableRetriever(catalog)
+    lexical_scored = retriever.top_k_with_scores(question, k=k)
+    lexical_hits = [t for t, _ in lexical_scored]
+
+    # Confident lexical matches (>= 2 hits or top score >= 0.25) -> return immediately
+    if len(lexical_hits) >= 2 or (lexical_hits and lexical_scored[0][1] >= 0.25):
+        return lexical_hits[:k]
+
+    # 2. Semantic / Vector fallback when lexical is sparse or insufficient
+    if catalog.embeddings_built:
+        try:
+            from app.schema_catalog.embedding_retrieval import EmbeddingTableRetriever
+            emb_retriever = cached_embedding_retriever or EmbeddingTableRetriever(catalog)
+            semantic_hits = await emb_retriever.top_k_async(question, k=k)
+            if semantic_hits:
+                combined = []
+                for t in lexical_hits + semantic_hits:
+                    if t not in combined:
+                        combined.append(t)
+                return combined[:k]
+        except Exception as e:
+            logger.debug(f"Semantic embedding retrieval async failed: {e}")
+
+    return lexical_hits[:k]

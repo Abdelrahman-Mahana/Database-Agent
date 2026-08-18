@@ -28,13 +28,15 @@ class SQLRepairEngine:
         schema_text: str,
         failed_sql: str,
         error: str,
+        dialect: str = "sqlite",
     ) -> str:
-        """Ask the LLM to repair a failed SQL query."""
+        """Ask the LLM to repair a failed SQL query using dialect-aware rules."""
         payload = self.prompt_builder.build_fix_input(
             schema_text=schema_text,
             question=question,
             failed_sql=failed_sql,
             error=error,
+            dialect=dialect,
         )
         response = await self.sql_fix_chain.ainvoke(payload)
         return self.validator.sanitize_and_extract(response.content)
