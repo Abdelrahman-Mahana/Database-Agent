@@ -4,6 +4,7 @@ from fastapi import APIRouter
 from app.database.db import DATABASE_URL
 from app.schemas.chat import SchemaResponse
 from app.services.sql_service import SchemaService
+from app.services.connection_manager import connection_manager
 
 router = APIRouter(prefix="/schema", tags=["schema"])
 schema_service = SchemaService()
@@ -28,7 +29,7 @@ async def get_schema(force_refresh: bool = False):
     return SchemaResponse(
         database_schema=schema,
         schema_text=schema_text,
-        database_url=str(schema_service.engine.url),
+        database_url=connection_manager.mask_connection_url(str(schema_service.engine.url)),
         database_name=db_name,
         database_type=db_type,
         recommended_questions=questions,

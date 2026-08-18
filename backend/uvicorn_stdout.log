@@ -1,0 +1,134 @@
+{"event": "Starting up AI Database Analyst Agent...", "level": "info", "logger": "app.main", "timestamp": "2026-08-18T11:10:59.817847Z"}
+{"event": "Startup complete.", "level": "info", "logger": "app.main", "timestamp": "2026-08-18T11:10:59.835300Z"}
+{"status_code": 200, "duration": 0.017353299999740557, "event": "Request completed", "request_id": "f1682f69-dfad-4f45-8ebf-fbc5bac056d6", "path": "/health", "method": "GET", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T11:11:20.294299Z"}
+INFO:     127.0.0.1:62010 - "GET /health HTTP/1.1" 200 OK
+{"status_code": 200, "duration": 0.0007475999991584104, "event": "Request completed", "request_id": "90f6b00f-ca91-42e5-bccf-e965d4f9108a", "path": "/health/ready", "method": "GET", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T11:11:20.363117Z"}
+INFO:     127.0.0.1:62010 - "GET /health/ready HTTP/1.1" 200 OK
+{"status_code": 200, "duration": 1.7838551000004372, "event": "Request completed", "request_id": "044f3fbf-556d-4ef5-931f-e1bf7345527f", "path": "/schema", "method": "GET", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T11:11:22.143722Z"}
+INFO:     127.0.0.1:62010 - "GET /schema HTTP/1.1" 200 OK
+{"status_code": 200, "duration": 0.002793499999825144, "event": "Request completed", "request_id": "463e3b61-4307-43bd-b32f-3b2ab347b377", "path": "/schema", "method": "OPTIONS", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:07:26.677692Z"}
+{"status_code": 200, "duration": 0.004005300001153955, "event": "Request completed", "request_id": "e58f0b71-9fc2-4580-aeb1-1d22b20e84d9", "path": "/memory/preferences", "method": "OPTIONS", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:07:26.681951Z"}
+INFO:     127.0.0.1:60543 - "OPTIONS /schema HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63627 - "OPTIONS /memory/preferences?user_id=default_user HTTP/1.1" 200 OK
+{"status_code": 200, "duration": 0.007607600000483217, "event": "Request completed", "request_id": "a45938aa-7bea-442e-9fec-f7a5c63bcbb5", "path": "/schema", "method": "OPTIONS", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:07:26.681951Z"}
+INFO:     127.0.0.1:49637 - "OPTIONS /schema HTTP/1.1" 200 OK
+{"fingerprint": "75e980187219", "event": "DatabaseContext expired in RAM", "request_id": "5f8da177-3e03-4df1-83f5-d3038a595dbf", "path": "/schema", "method": "GET", "level": "info", "logger": "app.database.context", "timestamp": "2026-08-18T16:07:26.710714Z"}
+{"status_code": 200, "duration": 1.2776964000004227, "event": "Request completed", "request_id": "5f8da177-3e03-4df1-83f5-d3038a595dbf", "path": "/schema", "method": "GET", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:07:27.963451Z"}
+{"status_code": 200, "duration": 0.00488250000125845, "event": "Request completed", "request_id": "4f4836cf-ed2a-47f1-9a80-641d4ba5b8b5", "path": "/memory/preferences", "method": "GET", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:07:27.979063Z"}
+INFO:     127.0.0.1:61088 - "GET /schema HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61290 - "GET /memory/preferences?user_id=default_user HTTP/1.1" 200 OK
+{"status_code": 200, "duration": 0.06437519999963115, "event": "Request completed", "request_id": "db081931-a853-4992-a5aa-5f2e5b676f7f", "path": "/schema", "method": "GET", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:07:28.046551Z"}
+INFO:     127.0.0.1:49637 - "GET /schema HTTP/1.1" 200 OK
+{"status_code": 200, "duration": 0.0002490999977453612, "event": "Request completed", "request_id": "f9f9240d-5937-4c15-a965-394847750eaf", "path": "/chat", "method": "OPTIONS", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:07:32.401027Z"}
+INFO:     127.0.0.1:49637 - "OPTIONS /chat HTTP/1.1" 200 OK
+HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+Generating 2 SQL candidates using self-consistency...
+HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+Generated 2 SQL candidates using self-consistency in 912.24ms. Total tokens: 2864 prompt / 277 completion.
+No self-consistency candidates passed validation. Falling back to fast model...
+HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+SQL execution failed (attempt 1/1): SQL execution failed: (psycopg2.errors.UndefinedTable) relation "public.does" does not exist
+LINE 4: FROM public.Does AS d
+             ^
+
+[SQL: SELECT
+  d.medicine_prescription_id,
+  d.ivf_medication_doses_id
+FROM public.Does AS d
+ORDER BY
+  d.medicine_prescription_id
+LIMIT 10]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+{"status_code": 200, "duration": 6.6646853999991436, "event": "Request completed", "request_id": "620d3a8b-4126-4a84-9961-9ef9477a48bc", "path": "/chat", "method": "POST", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:07:39.067603Z"}
+INFO:     127.0.0.1:49637 - "POST /chat HTTP/1.1" 200 OK
+{"status_code": 200, "duration": 0.0005077000023447908, "event": "Request completed", "request_id": "f0a33750-0da8-4d12-af3e-3a4924e8d989", "path": "/memory/queries", "method": "OPTIONS", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:07:56.479758Z"}
+INFO:     127.0.0.1:62581 - "OPTIONS /memory/queries?user_id=default_user HTTP/1.1" 200 OK
+{"status_code": 200, "duration": 0.002268499996716855, "event": "Request completed", "request_id": "12fdee05-ca7c-4291-a148-16df0223a41a", "path": "/chat/history", "method": "OPTIONS", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:07:56.509093Z"}
+INFO:     127.0.0.1:59952 - "OPTIONS /chat/history?session_id=default_session HTTP/1.1" 200 OK
+{"status_code": 200, "duration": 0.009055499998794403, "event": "Request completed", "request_id": "c496b667-b937-4346-bd62-3b0a050a319c", "path": "/memory/queries", "method": "GET", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:07:56.521471Z"}
+INFO:     127.0.0.1:62581 - "GET /memory/queries?user_id=default_user HTTP/1.1" 200 OK
+{"status_code": 200, "duration": 0.0011002999999618623, "event": "Request completed", "request_id": "60dd1dc4-e702-4974-aa5c-30fde5846eb2", "path": "/chat/history", "method": "GET", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:07:56.529085Z"}
+INFO:     127.0.0.1:62581 - "GET /chat/history?session_id=default_session HTTP/1.1" 200 OK
+HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+Generating 2 SQL candidates using self-consistency...
+HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+Generated 2 SQL candidates using self-consistency in 1224.55ms. Total tokens: 2838 prompt / 521 completion.
+Self-consistency voting selected SQL query with 2 votes.
+Chart suggestion resolved via heuristic: none (Not enough rows to plot)
+{"status_code": 200, "duration": 4.225743599999987, "event": "Request completed", "request_id": "c5ab6d8a-46f6-43d2-8908-29c713b76c66", "path": "/chat", "method": "POST", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:08:02.282926Z"}
+INFO:     127.0.0.1:62581 - "POST /chat HTTP/1.1" 200 OK
+{"status_code": 200, "duration": 0.06336469999951078, "event": "Request completed", "request_id": "9ec1ee14-5ec7-4b59-88b0-d73443dcf21f", "path": "/schema", "method": "GET", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:08:23.715679Z"}
+INFO:     127.0.0.1:62726 - "GET /schema HTTP/1.1" 200 OK
+{"status_code": 200, "duration": 0.004927899997710483, "event": "Request completed", "request_id": "ca4edef9-ecd8-4244-bdd1-514e86ebafba", "path": "/memory/preferences", "method": "GET", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:08:23.727541Z"}
+INFO:     127.0.0.1:63567 - "GET /memory/preferences?user_id=default_user HTTP/1.1" 200 OK
+{"status_code": 200, "duration": 0.0594158999992942, "event": "Request completed", "request_id": "dc2cc08e-1bc9-468f-8fb4-d4e6cfcd4aa8", "path": "/schema", "method": "GET", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:08:23.794123Z"}
+INFO:     127.0.0.1:55030 - "GET /schema HTTP/1.1" 200 OK
+HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+SQL cache hit (In-Memory) for question.
+SQL execution failed (attempt 1/1): SQL execution failed: (psycopg2.errors.UndefinedTable) relation "public.does" does not exist
+LINE 4: FROM public.Does AS d
+             ^
+
+[SQL: SELECT
+  d.medicine_prescription_id,
+  d.ivf_medication_doses_id
+FROM public.Does AS d
+ORDER BY
+  d.medicine_prescription_id
+LIMIT 10]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+{"status_code": 200, "duration": 2.596579199998814, "event": "Request completed", "request_id": "939d9451-19b7-4fa2-b82a-ad2043c233c4", "path": "/chat", "method": "POST", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:08:29.540316Z"}
+INFO:     127.0.0.1:55030 - "POST /chat HTTP/1.1" 200 OK
+{"status_code": 200, "duration": 0.0003507000001263805, "event": "Request completed", "request_id": "dfbf43c6-14a6-4281-b12d-a23a09db9a9b", "path": "/health", "method": "OPTIONS", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:08:33.036747Z"}
+INFO:     127.0.0.1:55030 - "OPTIONS /health HTTP/1.1" 200 OK
+{"status_code": 200, "duration": 0.0016069999983301386, "event": "Request completed", "request_id": "92058d4a-18e5-4f91-89fd-5eb497f673ac", "path": "/stats/cost", "method": "OPTIONS", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:08:33.042925Z"}
+{"status_code": 200, "duration": 0.0021809999998367857, "event": "Request completed", "request_id": "c01eace5-31df-4cd3-b0ad-caa705c5fe11", "path": "/stats/cost/recent", "method": "OPTIONS", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:08:33.044922Z"}
+INFO:     127.0.0.1:58204 - "OPTIONS /stats/cost HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54469 - "OPTIONS /stats/cost/recent?limit=25 HTTP/1.1" 200 OK
+{"status_code": 200, "duration": 0.0030573999974876642, "event": "Request completed", "request_id": "d143fffa-0b10-44f2-b684-8c5c6ac52ae3", "path": "/health", "method": "GET", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:08:33.052085Z"}
+INFO:     127.0.0.1:55030 - "GET /health HTTP/1.1" 200 OK
+{"status_code": 200, "duration": 0.005249300000286894, "event": "Request completed", "request_id": "33c3b98b-82af-475f-b57a-2fc79507af78", "path": "/stats/cost", "method": "GET", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:08:33.064357Z"}
+{"status_code": 200, "duration": 0.0037641999988409225, "event": "Request completed", "request_id": "d5b529f6-d091-4267-b05e-ecb22ddfc728", "path": "/stats/cost/recent", "method": "GET", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:08:33.066360Z"}
+INFO:     127.0.0.1:51772 - "GET /stats/cost HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49498 - "GET /stats/cost/recent?limit=25 HTTP/1.1" 200 OK
+{"status_code": 200, "duration": 0.0018584999997983687, "event": "Request completed", "request_id": "0c1cafa5-6100-404a-a5da-6ead7cffe83e", "path": "/health", "method": "GET", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:08:37.613674Z"}
+INFO:     127.0.0.1:49498 - "GET /health HTTP/1.1" 200 OK
+{"status_code": 200, "duration": 0.005966900000203168, "event": "Request completed", "request_id": "bdfce3a6-df44-4c26-8ee0-27db0d4bf94f", "path": "/stats/cost", "method": "GET", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:08:37.620345Z"}
+{"status_code": 200, "duration": 0.005658199999743374, "event": "Request completed", "request_id": "28e5be18-66cf-4719-974c-8de3015277b0", "path": "/stats/cost/recent", "method": "GET", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:08:37.620345Z"}
+INFO:     127.0.0.1:51772 - "GET /stats/cost HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55030 - "GET /stats/cost/recent?limit=25 HTTP/1.1" 200 OK
+{"status_code": 200, "duration": 0.0008682000006956514, "event": "Request completed", "request_id": "c92c25d0-a80a-4cd4-b7f2-7bf9bcccdb12", "path": "/health", "method": "GET", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:08:47.634524Z"}
+INFO:     127.0.0.1:59513 - "GET /health HTTP/1.1" 200 OK
+{"status_code": 200, "duration": 0.0010403999986010604, "event": "Request completed", "request_id": "d27c7c57-f1f4-4016-be37-e28862eab947", "path": "/stats/cost", "method": "GET", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:08:47.640811Z"}
+INFO:     127.0.0.1:59513 - "GET /stats/cost HTTP/1.1" 200 OK
+{"status_code": 200, "duration": 0.001833899998018751, "event": "Request completed", "request_id": "9c0ee8e1-bd5b-4080-a543-48e315f11049", "path": "/stats/cost/recent", "method": "GET", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:08:47.650242Z"}
+INFO:     127.0.0.1:54367 - "GET /stats/cost/recent?limit=25 HTTP/1.1" 200 OK
+{"status_code": 200, "duration": 0.07871319999685511, "event": "Request completed", "request_id": "dcfc63c7-c763-413c-b9dc-4acab6e7045a", "path": "/schema", "method": "GET", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:08:54.524592Z"}
+{"status_code": 200, "duration": 0.004108900000574067, "event": "Request completed", "request_id": "eed1ae41-2352-4a79-82be-315ccdfd348d", "path": "/memory/preferences", "method": "GET", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:08:54.526600Z"}
+INFO:     127.0.0.1:58465 - "GET /schema HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62387 - "GET /memory/preferences?user_id=default_user HTTP/1.1" 200 OK
+HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+Generated SQL query in 999.46ms. Tokens used: 1335 prompt / 356 completion.
+SQL execution failed (attempt 1/1): SQL execution failed: (psycopg2.errors.UndefinedTable) relation "public.does" does not exist
+LINE 8: FROM public.Does AS d
+             ^
+
+[SQL: SELECT
+  d.medicine_prescription_id,
+  d.ivf_medication_doses_id,
+  imd.product_template_id,
+  imd.name,
+  imd.create_date,
+  imd.write_date
+FROM public.Does AS d
+JOIN public.ivf_medication_doses AS imd
+  ON d.ivf_medication_doses_id = imd.id
+LIMIT 500]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+{"status_code": 200, "duration": 3.8467463000015414, "event": "Request completed", "request_id": "36e8bf52-0f4e-4508-ab80-6c7412c82c29", "path": "/chat", "method": "POST", "level": "info", "logger": "app.middleware.logging", "timestamp": "2026-08-18T16:08:59.227041Z"}
+INFO:     127.0.0.1:58465 - "POST /chat HTTP/1.1" 200 OK

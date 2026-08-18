@@ -135,6 +135,10 @@ class ConnectionManager:
             user_info, host_info = rest.split("@", 1)
             if ":" in user_info:
                 user, _ = user_info.split(":", 1)
+                return f"{prefix}://{user}:***@{host_info}"
+            return f"{prefix}://***@{host_info}"
+            if ":" in user_info:
+                user, _ = user_info.split(":", 1)
                 return f"{prefix}://{user}:••••••••@{host_info}"
             return f"{prefix}://••••••••@{host_info}"
         return url

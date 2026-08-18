@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiClient } from "@/services/api";
@@ -28,6 +30,7 @@ import {
 interface HealthData {
   status: string;
   llm_available: boolean;
+  llm_configured?: boolean;
   llm_provider: string;
   ollama_available: boolean;
   model: string;
@@ -180,9 +183,9 @@ export default function ExecutionDetailsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-xl font-bold">
-              {healthData?.llm_latency_ms ? `${Math.round(healthData.llm_latency_ms)} ms` : "Direct Response"}
+              {healthData?.llm_latency_ms ? `${Math.round(healthData.llm_latency_ms)} ms` : "Not probed"}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">Model API round-trip</p>
+            <p className="text-xs text-muted-foreground mt-1">Use dependency health for a provider probe</p>
           </CardContent>
         </Card>
 

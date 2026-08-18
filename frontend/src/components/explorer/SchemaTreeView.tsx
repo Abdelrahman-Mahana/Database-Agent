@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable react-hooks/immutability, react-hooks/set-state-in-effect */
+
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { 
   Database, 

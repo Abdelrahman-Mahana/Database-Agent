@@ -44,7 +44,21 @@ class SchemaExplorer:
             "الجداول الموجودة", "الجداول المتاحة", "قواعد البيانات الموجودة",
         )
         if any(x in q for x in overview_terms):
-            tables = sorted(list(schema.keys()))
+            focus_terms = []
+            if any(term in q for term in ("patient", "patients")):
+                focus_terms.extend(["patient", "pat", "partner"])
+            if any(term in q for term in ("doctor", "doctors")):
+                focus_terms.extend(["doctor", "physician"])
+            if any(term in q for term in ("company", "companies")):
+                focus_terms.append("company")
+
+            if focus_terms:
+                tables = sorted(
+                    t for t in schema.keys()
+                    if any(term in t.lower().rsplit(".", 1)[-1] for term in focus_terms)
+                )
+            else:
+                tables = sorted(list(schema.keys()))
             if is_arabic:
                 report = f"أكيد. قاعدة البيانات الحالية فيها **{len(tables)} جدول**، وكل جدول مسؤول عن جزء مختلف من البيانات.\n\n"
                 for t in tables:
@@ -57,7 +71,10 @@ class SchemaExplorer:
                     report += ".\n"
                 report += "\nلو تحب، أقدر أشرح لك وظيفة كل جدول والعلاقات بينهم بشكل أبسط."
             else:
-                report = f"Sure. The current database contains **{len(tables)} tables**, each covering a different part of the data.\n\n"
+                if focus_terms:
+                    report = f"I found **{len(tables)} matching tables** for that topic.\n\n"
+                else:
+                    report = f"Sure. The current database contains **{len(tables)} tables**, each covering a different part of the data.\n\n"
                 for t in tables:
                     cols = schema[t].get("columns", [])
                     col_names = [str(c.get("name")) for c in cols[:8]]

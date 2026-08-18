@@ -1,37 +1,17 @@
 """LangGraph Agentic Orchestrator (Rebuild Plan — Phase 2).
 
 ARCHITECTURAL NOTE:
-This module provides an experimental, feature-flagged (`use_langgraph_orchestrator`) 
-execution path. It is used for A/B testing graph-based execution against the stable 
-linear pipeline found in `app.agents.analyst_agent`. 
+This module is the LangGraph canonical orchestration path, selected at deploy
+time via `use_langgraph_orchestrator`. It is NOT a fallback layer — when enabled,
+failures surface explicitly and do not silently route to the service pipeline.
 
-Replaces the linear if/else step-by-step method body of `AnalystAgent.ask`
-with a `StateGraph` — but does NOT reimplement any business logic. Every
-node here is a thin wrapper around the exact same components/methods the
-linear pipeline already calls (`SchemaGroundingEngine`, `Planner`,
-`SQLGenerator`, `ReportService`, `AnalyticsEngine`, ...). This is the
-"existing classes = ready-made Tools" approach from the roadmap: wrap, don't
-rewrite.
-
-What actually changes vs the linear pipeline:
-- Control flow is expressed as graph edges (some conditional) instead of
-  nested if/else + early `return`.
-- ONE new capability: a bounded reflect-and-retry loop. If SQL execution
-  fails even after `execute_with_repair`'s own bounded auto-repair, the
-  linear pipeline always gives up and reports "no answer". This graph gets
-  exactly one extra chance to re-run the *understanding* step with a hint
-  about what went wrong, in case the root cause was a misidentified
-  table/column rather than a bad SQL statement — then retries generation.
-  Bounded to a single retry (`state["retried"]`) so this can never loop.
-
-This module is imported lazily (only when `settings.use_langgraph_orchestrator`
-is true) so the app keeps working unmodified if `langgraph` isn't installed.
-
-Safety/architecture boundaries preserved exactly as in the linear pipeline:
-- SQL safety validation (`validate_sql`, sqlglot AST) is untouched and still
-  runs as its own deterministic step - the graph never skips or reinterprets it.
-- Cost guard, data masking, and analytics are still fully deterministic and
-  still run in the same relative order.
+Every node is a thin wrapper around the same components the service pipeline
+uses (`SchemaGroundingEngine`, `Planner`, `SQLGenerator`, `ReportService`, ...).
+The validate_sql node runs the full pre-execution gate chain:
+AST safety → identifier grounding → join validation → QuerySpec alignment
+(blocking before execute on unknown identifiers or unsupported joins).
+Stage-level fallbacks (e.g. Planner after single-SQL failure, reflect-and-retry)
+live inside this graph only.
 """
 from typing import Any, Optional, TypedDict
 
@@ -43,8 +23,10 @@ from app.utils.text_processor import build_result_summary, COMPLEX_ANALYSIS_TYPE
 from app.semantic.synonyms import resolve_synonyms
 from app.utils.cost_router import should_use_self_consistency, choose_sql_generation_tier
 from app.config.settings import settings
-from app.security.cost_guard import check_query_cost
+from app.schema_grounding.confidence import grounding_confidence
+from app.security.cost_guard import check_query_cost, cost_guard_failure_result
 from app.security.data_masking import mask_sensitive_columns
+from app.sql.control_gate import SQLControlGate
 from app.semantic.models import ExecutionRoute
 
 MAX_FIX_ATTEMPTS = getattr(settings, "max_fix_attempts", 1)
@@ -57,6 +39,7 @@ class AgentState(TypedDict, total=False):
     memory: Any
     conversation_history: str
     full_schema: dict
+    db_ctx: Any
     catalog: Any
     query_understanding: Any
     grounded_schema: Any
@@ -73,6 +56,7 @@ class AgentState(TypedDict, total=False):
     retried: bool
     retry_hint: str
     plan_completed: bool
+    planner_failure: dict
     result: dict
 
 
@@ -115,32 +99,34 @@ def build_analyst_graph(agent) -> "StateGraph":
         full_schema = db_ctx.schema
         catalog = db_ctx.catalog
 
-        # 2. Single-pass Unified QuerySpecBuilder (< 0.15ms, 0 LLM calls)
+        # 2. Unified QuerySpecBuilder (deterministic fast path with optional LLM understanding)
         t_und_start = time.perf_counter()
-        query_spec = agent.query_spec_builder.build_spec(
+        query_spec = await agent.query_spec_builder.build_spec_async(
             question=question,
-            schema=full_schema,
+            db_ctx=db_ctx,
             conversation_history=conversation_history,
             catalog=catalog,
         )
         und_ms = (time.perf_counter() - t_und_start) * 1000
         result["timings_ms"]["query_understanding_ms"] = round(und_ms, 2)
         result["intent"] = query_spec.intent.value
+        result["understanding_source"] = query_spec.source
 
         # Route first: conversation/general, schema/metadata, or real data query.
         if query_spec.route == ExecutionRoute.CONVERSATION:
             reply = query_spec.off_topic_response
-            if not reply or query_spec.route_confidence < 0.9:
-                reply = await agent.report_service.generate_conversational_response(
-                    question=question,
-                    conversation_history=conversation_history,
-                    database_context="A database connection exists, but this request was classified as conversational/general.",
+            if not reply:
+                is_ar = any("\u0600" <= c <= "\u06FF" for c in question)
+                reply = (
+                    "أنا مساعد متخصص في استعلام وتحليل قواعد البيانات. يمكنني مساعدتك في استعراض الجداول، حساب المؤشرات، وكتابة استعلامات SQL. يرجى توجيه سؤالك حول قاعدة البيانات أو البيانات المتصلة."
+                    if is_ar else
+                    "I am specialized in database analysis and querying. I can help you explore tables, compute metrics, write SQL queries, or generate data reports. Please ask a question related to your database or data."
                 )
             result["intent"] = "conversation"
             result["report"] = reply
             result["success"] = True
             state_result = {
-                "result": result, "full_schema": full_schema, "catalog": catalog,
+                "result": result, "full_schema": full_schema, "catalog": catalog, "db_ctx": db_ctx,
                 "query_understanding": query_spec, "analysis_type": query_spec.analysis_type
             }
             return state_result
@@ -150,15 +136,35 @@ def build_analyst_graph(agent) -> "StateGraph":
             if schema_resp:
                 schema_resp["intent"] = "schema"
                 state_result = {
-                    "result": schema_resp, "full_schema": full_schema, "catalog": catalog,
+                "result": schema_resp, "full_schema": full_schema, "catalog": catalog, "db_ctx": db_ctx,
                     "query_understanding": query_spec, "analysis_type": query_spec.analysis_type
                 }
                 return state_result
+
+        if query_spec.requires_clarification:
+            clarification_report = query_spec.clarification_prompt or (
+                "Your question matches more than one table or semantic target. Please clarify which one you mean."
+            )
+            result["intent"] = "clarification"
+            result["report"] = clarification_report
+            result["suggestions"] = query_spec.ambiguity_candidates
+            result["error_type"] = "ambiguity"
+            result["success"] = True
+            if query_spec.ambiguity_evidence:
+                result.setdefault("warnings", [])
+                result["warnings"].append(query_spec.ambiguity_evidence)
+            state["memory"].add_turn(question, "", clarification_report, "database")
+            state_result = {
+                "result": result, "full_schema": full_schema, "catalog": catalog, "db_ctx": db_ctx,
+                "query_understanding": query_spec, "analysis_type": query_spec.analysis_type
+            }
+            return state_result
 
         result["intent"] = "data_query"
 
         return {
             "full_schema": full_schema,
+            "db_ctx": db_ctx,
             "query_understanding": query_spec,
             "catalog": catalog,
             "analysis_type": query_spec.analysis_type,
@@ -229,9 +235,18 @@ def build_analyst_graph(agent) -> "StateGraph":
                 sql_generator=agent.sql_generator,
                 report_service=agent.report_service,
                 memory=state["memory"],
+                catalog=state.get("catalog"),
+                raw_schema=state.get("full_schema"),
+                db_ctx=state.get("db_ctx"),
             )
             if plan_result and plan_result.get("success"):
                 return {"result": plan_result, "plan_completed": True, "retried": True}
+            if plan_result:
+                return {
+                    "plan_completed": False,
+                    "retried": True,
+                    "planner_failure": plan_result,
+                }
 
         return {"plan_completed": False, "retried": True}
 
@@ -275,6 +290,7 @@ def build_analyst_graph(agent) -> "StateGraph":
         if reason:
             logger.info("Question flagged UNANSWERABLE: %s", reason)
             result["sql"] = ""
+            result["error_type"] = "unanswerable"
             result["report"] = await agent.report_service.generate_no_answer_response(
                 question=question,
                 situation="This question cannot be answered using the current database schema.",
@@ -292,16 +308,17 @@ def build_analyst_graph(agent) -> "StateGraph":
 
     async def validate_sql_node(state: AgentState) -> dict:
         import time
+        from app.sql.validator import sql_validator
+
         sql = state["sql"]
         result = state["result"]
         t0 = time.perf_counter()
         validation = validate_sql(sql)
-        val_ms = (time.perf_counter() - t0) * 1000
         if "timings_ms" not in result:
             result["timings_ms"] = {}
-        result["timings_ms"]["sql_validation_ms"] = round(val_ms, 2)
 
         if not validation["valid"]:
+            result["timings_ms"]["sql_validation_ms"] = round((time.perf_counter() - t0) * 1000, 2)
             result["attempted_sql"] = sql
             result["error_type"] = validation.get("query_type", "safety")
             result["error"] = validation["reason"]
@@ -309,6 +326,59 @@ def build_analyst_graph(agent) -> "StateGraph":
                 question=state["question"],
                 situation="The generated query could not be safely executed.",
                 reason=validation["reason"],
+                table_names=list(state["full_schema"].keys()),
+            )
+            return {"result": result}
+
+        ident_ok, ident_warnings = sql_validator.verify_sql_identifiers(
+            sql,
+            catalog=state.get("catalog"),
+            raw_schema=state.get("full_schema"),
+        )
+        join_ok, join_warnings = sql_validator.verify_sql_joins(
+            sql,
+            catalog=state.get("catalog"),
+        )
+        qspec_ok, qspec_warnings = sql_validator.verify_query_spec_alignment(
+            sql,
+            query_spec=state.get("query_understanding"),
+        )
+
+        for w in ident_warnings + join_warnings + qspec_warnings:
+            if w not in result.setdefault("warnings", []):
+                result["warnings"].append(w)
+
+        result["sql_validation"] = {
+            "safety_valid": True,
+            "identifiers_valid": ident_ok,
+            "joins_valid": join_ok,
+            "alignment_valid": qspec_ok,
+        }
+
+        # Keep draft diagnostics for observability.  SQLControlGate in the
+        # executor is authoritative because it validates the *final* SQL for
+        # every path, including cache and repair candidates.
+        result["pre_execution_validation"] = dict(result["sql_validation"])
+
+        result["timings_ms"]["sql_validation_ms"] = round((time.perf_counter() - t0) * 1000, 2)
+        # A generated draft that references an unknown table/column, uses an
+        # invalid join path, or contradicts the resolved request must never
+        # reach the executor.  The control gate is still applied again to
+        # every final/repair candidate, but blocking here avoids an unsafe
+        # first execution and gives the client a precise failure reason.
+        if not ident_ok or not join_ok or not qspec_ok:
+            error_type = (
+                "identifier_grounding" if not ident_ok else
+                "join_validation" if not join_ok else "semantic_alignment"
+            )
+            reason = "; ".join(ident_warnings + join_warnings + qspec_warnings)
+            result["attempted_sql"] = sql
+            result["error_type"] = error_type
+            result["error"] = reason or "Generated SQL failed semantic validation."
+            result["report"] = await agent.report_service.generate_no_answer_response(
+                question=state["question"],
+                situation="The generated query does not match the available database schema.",
+                reason=result["error"],
                 table_names=list(state["full_schema"].keys()),
             )
         return {"result": result}
@@ -320,10 +390,20 @@ def build_analyst_graph(agent) -> "StateGraph":
         result = state["result"]
         if settings.enable_cost_guard:
             try:
-                cost_check = check_query_cost(state["sql"], state.get("catalog"), settings.cost_guard_max_unfiltered_rows)
+                cost_check = check_query_cost(
+                    sql=state["sql"],
+                    catalog=state.get("catalog"),
+                    max_unfiltered_rows=settings.cost_guard_max_unfiltered_rows,
+                    db=state.get("db"),
+                    max_estimated_rows=settings.cost_guard_max_estimated_rows,
+                )
             except Exception as cost_err:
-                cost_check = None
-                logger.debug("Cost guard check skipped: %s", cost_err)
+                cost_check = cost_guard_failure_result(
+                    state["sql"],
+                    catalog=state.get("catalog"),
+                    max_unfiltered_rows=settings.cost_guard_max_unfiltered_rows,
+                    error=cost_err,
+                )
             if cost_check is not None and not cost_check.allowed:
                 result["attempted_sql"] = state["sql"]
                 result["error_type"] = "cost_guard"
@@ -350,6 +430,11 @@ def build_analyst_graph(agent) -> "StateGraph":
             question=state["question"], schema_text=state["schema_text"], sql=state["sql"],
             db=state["db"], max_fix_attempts=MAX_FIX_ATTEMPTS,
             initial_tier=initial_tier, sql_cache_hit=sql_cache_hit,
+            pre_execution_gate=lambda candidate: SQLControlGate().evaluate(
+                candidate,
+                query_spec=state.get("query_understanding"),
+                catalog=state.get("catalog"), raw_schema=state.get("full_schema"), db=state.get("db"),
+            ),
         )
         exec_ms = (time.perf_counter() - t0) * 1000
         exec_meta = getattr(agent.sql_generator, "last_execution_meta", {})
@@ -382,11 +467,16 @@ def build_analyst_graph(agent) -> "StateGraph":
 
     async def report_exec_error_node(state: AgentState) -> dict:
         result = state["result"]
-        exec_error = state.get("exec_error", "Execution error")
+        planner_failure = state.get("planner_failure") or {}
+        exec_error = planner_failure.get("error") or state.get("exec_error", "Execution error")
         suggestions = state.get("suggestions") or []
         result["attempted_sql"] = state.get("final_sql", "")
-        result["error_type"] = state.get("error_type")
+        result["error_type"] = planner_failure.get("error_type") or state.get("error_type")
         result["error"] = exec_error
+        if planner_failure:
+            result["plan_status"] = planner_failure.get("plan_status")
+            result["plan_completed_steps"] = planner_failure.get("completed_steps", 0)
+            result["plan_required_steps"] = planner_failure.get("required_steps")
         result["suggestions"] = suggestions
         if suggestions:
             suggestion_str = " or ".join(f"'{s}'" for s in suggestions)
@@ -395,7 +485,10 @@ def build_analyst_graph(agent) -> "StateGraph":
             reason_text = exec_error
         result["report"] = await agent.report_service.generate_no_answer_response(
             question=state["question"],
-            situation="The query failed to execute even after attempting to automatically repair it.",
+            situation=(
+                "The multi-step analysis could not be completed because a required plan step failed."
+                if planner_failure else "The query failed to execute even after attempting to automatically repair it."
+            ),
             reason=reason_text,
             table_names=list(state["full_schema"].keys()),
         )
@@ -406,6 +499,14 @@ def build_analyst_graph(agent) -> "StateGraph":
         result = state["result"]
         rows = state["rows"]
         result["sql"] = state["final_sql"]
+        # execute_with_repair only returns successful rows after the final SQL
+        # has cleared SQLControlGate.  Retain initial diagnostics separately.
+        result["sql_validation"] = {
+            "safety_valid": True,
+            "identifiers_valid": True,
+            "joins_valid": True,
+            "alignment_valid": True,
+        }
 
         if settings.enable_data_masking and rows:
             try:
@@ -431,19 +532,51 @@ def build_analyst_graph(agent) -> "StateGraph":
             result["timings_ms"] = {}
         result["timings_ms"]["analytics_ms"] = round(an_ms, 2)
 
+        # Step 10: Result Verification
+        from app.sql.result_verifier import result_verifier
+        verification = result_verifier.verify(
+            rows,
+            query_spec=state.get("query_understanding"),
+            sql=state.get("final_sql", ""),
+            validation_status=result.get("sql_validation"),
+            catalog=state.get("catalog"),
+        )
+        result["verification"] = verification.to_dict()
+        if verification.warnings:
+            result.setdefault("warnings", [])
+            for w in verification.warnings:
+                if w not in result["warnings"]:
+                    result["warnings"].append(w)
+
+        if verification.answer_action == "FAIL":
+            result["error_type"] = "result_verification"
+            result["error"] = "Result verification failed required quality gates."
+            result["report"] = await agent.report_service.generate_no_answer_response(
+                question=state["question"],
+                situation="The query result did not pass the required quality gates.",
+                reason="; ".join(
+                    f"{name}: {status}" for name, status in verification.gate_statuses.items()
+                    if status == "FAIL"
+                ),
+                table_names=list(state["full_schema"].keys()),
+            )
+
         return {"rows": rows, "result": result, "analytics_result": analytics_result, "insight_result": insight_result}
 
     def route_after_analyze(state: AgentState) -> str:
-        return "no_rows_report" if not state["rows"] else "report"
+        return END if state["result"].get("report") else ("no_rows_report" if not state["rows"] else "report")
 
     async def no_rows_report_node(state: AgentState) -> dict:
         result = state["result"]
+        result["error_type"] = "empty_result"
         result["report"] = await agent.report_service.generate_no_answer_response(
             question=state["question"],
             situation="The query ran successfully but returned no matching rows.",
             reason="No records matched the filters implied by the question.",
             table_names=list(state["full_schema"].keys()),
         )
+        if result.get("verification", {}).get("answer_action") == "WARN":
+            result["report"] += "\n\n*Warning: result quality checks flagged result cardinality.*"
         result["success"] = True
         state["memory"].add_turn(state["question"], state["final_sql"], "No rows returned.", "database")
         return {"result": result}
@@ -460,22 +593,54 @@ def build_analyst_graph(agent) -> "StateGraph":
         rows_for_llm = rows[:MAX_ROWS_FOR_LLM] if truncated else rows
 
         t0 = time.perf_counter()
-        report = await agent.report_service.generate_conversational_data_response(
-            question=question,
-            sql=final_sql,
-            results=rows_for_llm,
-            conversation_history=conversation_history,
+        result["report_mode"] = agent.report_service.resolve_report_mode(
+            state.get("query_understanding")
+        ).value
+        report, chart = await agent.report_service.generate_report_and_chart(
+            question, final_sql, rows_for_llm,
             analytics_result=state.get("analytics_result"),
             insight_result=state.get("insight_result"),
-        )
-        chart = await agent.report_service.suggest_chart(
-            question=question,
-            sql=final_sql,
-            results=rows_for_llm,
-            analytics_result=state.get("analytics_result"),
-            insight_result=state.get("insight_result"),
+            require_verification=(analysis_type in COMPLEX_ANALYSIS_TYPES),
+            verified_facts=result.get("verification", {}).get("deterministic_facts"),
+            total_result_rows=len(rows),
+            query_spec=state.get("query_understanding"),
+            verification_rows=rows,
         )
         rep_ms = (time.perf_counter() - t0) * 1000
+
+        verification_data = result.setdefault("verification", {})
+        if result["report_mode"] == "deterministic":
+            verification_data["claim_evaluations"] = []
+            verification_data["claim_confidence"] = 1.0
+            verification_data["claims_grounded"] = True
+        else:
+            # Apply the same provenance-aware claim gate as the service pipeline.
+            from app.sql.result_verifier import result_verifier
+            constrained_report, claim_evaluations, claim_confidence = result_verifier.verify_and_constrain_prose(
+                report,
+                rows=rows,
+                facts=verification_data.get("deterministic_facts"),
+                analytics_result=state.get("analytics_result"),
+                sql=final_sql,
+            )
+            verification_data["claim_evaluations"] = [c.to_dict() for c in claim_evaluations]
+            verification_data["claim_confidence"] = claim_confidence
+            claims_ok = all(c.is_verified for c in claim_evaluations)
+            verification_data["claims_grounded"] = claims_ok
+            if not claims_ok:
+                unverified_claims = [
+                    f"Unverified claim: '{c.statement}'" for c in claim_evaluations if not c.is_verified
+                ]
+                result.setdefault("warnings", []).extend(
+                    warning for warning in unverified_claims if warning not in result["warnings"]
+                )
+            report = constrained_report
+        if verification_data.get("answer_action") == "WARN":
+            warning_gates = ", ".join(
+                name.replace("_", " ") for name, status in verification_data.get("gate_statuses", {}).items()
+                if status == "WARN"
+            )
+            report += f"\n\n*Warning: result quality checks flagged {warning_gates}.*"
 
         if truncated:
             if any("\u0600" <= c <= "\u06FF" for c in question):
@@ -556,4 +721,81 @@ async def run_graph_ask(agent, question: str, db, memory, conversation_history: 
     trace = get_llm_trace()
     result["llm_trace"] = trace
     result["llm_call_count"] = len(trace)
+
+    # Step 12: Record Evaluation Trace
+    qspec_obj = final_state.get("query_understanding")
+    grounded_obj = final_state.get("grounded_schema")
+
+    conf_route = float(getattr(qspec_obj, "route_confidence", 1.0)) if qspec_obj else 1.0
+    conf_retrieval = 0.95 if (grounded_obj and not getattr(grounded_obj, "fallback_used", False)) else 0.70
+    has_grounding_warnings = any(
+        w for w in result.get("warnings", [])
+        if "table" in w.lower() or "column" in w.lower() or "join" in w.lower()
+    )
+    sql_validation = result.get("sql_validation", {})
+    grounding_failed = (
+        sql_validation.get("identifiers_valid") is False
+        or sql_validation.get("joins_valid") is False
+    )
+    conf_grounding, grounding_evidence = grounding_confidence(grounded_obj, qspec_obj)
+    if has_grounding_warnings or grounding_failed:
+        conf_grounding = min(conf_grounding, 0.60)
+    repair_cnt = result.get("sql_repair_attempts", 0) or 0
+    conf_sql = 1.0 if repair_cnt == 0 else max(0.4, 1.0 - repair_cnt * 0.25)
+    conf_execution = 1.0 if result.get("results") else (0.75 if result.get("success") else 0.0)
+    claims_grounded = result.get("verification", {}).get("claims_grounded", True)
+    conf_answer = 1.0 if claims_grounded else 0.80
+
+    overall_confidence = round(
+        conf_route * 0.15 + conf_retrieval * 0.15 + conf_grounding * 0.20 +
+        conf_sql * 0.20 + conf_execution * 0.15 + conf_answer * 0.15,
+        3
+    )
+
+    confidence_breakdown = {
+        "route": round(conf_route, 2),
+        "retrieval": round(conf_retrieval, 2),
+        "grounding": round(conf_grounding, 2),
+        "sql": round(conf_sql, 2),
+        "execution": round(conf_execution, 2),
+        "answer": round(conf_answer, 2),
+        "overall": overall_confidence,
+    }
+    result["confidence_breakdown"] = confidence_breakdown
+
+    evaluation_trace = {
+        "question": question,
+        "route": qspec_obj.route.value if qspec_obj and hasattr(qspec_obj.route, "value") else "unknown",
+        "retrieval_evidence": {
+            "seed_tables": list(grounded_obj.retrieved_seed_tables) if grounded_obj else [],
+        "grounded_tables": list(grounded_obj.selected_tables) if grounded_obj else [],
+            "grounding_evidence": grounding_evidence,
+        },
+        "query_spec": {
+            "entities": qspec_obj.entities if qspec_obj else [],
+            "metrics": qspec_obj.metrics if qspec_obj else [],
+            "dimensions": qspec_obj.dimensions if qspec_obj else [],
+            "analysis_type": qspec_obj.analysis_type.value if qspec_obj and hasattr(qspec_obj.analysis_type, "value") else "unknown",
+            "output_shape": qspec_obj.output_shape if qspec_obj else "table",
+            "confidence": qspec_obj.confidence if qspec_obj else 1.0,
+        } if qspec_obj else {},
+        "sql": result.get("sql") or result.get("attempted_sql") or "",
+        "validation_passed": (
+            result.get("sql_validation", {}).get("identifiers_valid", True)
+            and result.get("sql_validation", {}).get("joins_valid", True)
+            and result.get("error_type") not in ("safety", "identifier_grounding", "join_validation")
+        ),
+        "execution_metrics": {
+            "rows_count": len(result.get("results") or []),
+            "execution_ms": result.get("timings_ms", {}).get("sql_execution_ms", 0.0),
+            "repair_attempts": result.get("sql_repair_attempts", 0),
+            "cache_hit": result.get("sql_cache_hit", False),
+        },
+        "verification_outcome": result.get("verification", {}),
+        "confidence_breakdown": confidence_breakdown,
+        "timings_ms": result.get("timings_ms", {}),
+        "confidence": overall_confidence,
+    }
+    result["evaluation_trace"] = evaluation_trace
+
     return result

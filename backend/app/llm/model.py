@@ -1,6 +1,8 @@
 import asyncio
 import json
 import logging
+import random
+import time
 from typing import AsyncGenerator
 
 import httpx
@@ -31,21 +33,34 @@ except ImportError:
 
 from app.config.settings import settings
 from app.utils.token_tracker import ContextTokenTrackerCallback
+from app.utils.token_tracker import record_llm_trace, token_usage_var
 
 logger = logging.getLogger(__name__)
 
-# A global dictionary to cache OpenRouter model pricing to prevent querying the API repeatedly.
-_openrouter_pricing_cache: dict[str, dict[str, float]] | None = None
+# Static fallback prices in USD per 1M tokens.  Runtime workflows must always
+# be able to price a request without depending on OpenRouter's model catalog.
+_OPENROUTER_STATIC_PRICING: dict[str, dict[str, float]] = {
+    "google/gemini-2.5-flash": {"prompt": 0.075, "completion": 0.30},
+    "google/gemini-2.5-pro": {"prompt": 1.25, "completion": 5.00},
+    "anthropic/claude-3.5-sonnet": {"prompt": 3.00, "completion": 15.00},
+    "meta-llama/llama-3.3-70b-instruct": {"prompt": 0.60, "completion": 0.60},
+    "deepseek/deepseek-chat": {"prompt": 0.14, "completion": 0.28},
+}
+_OPENROUTER_UNKNOWN_PRICE = {"prompt": 0.0, "completion": 0.0}
+_openrouter_pricing_cache: dict[str, dict[str, float]] = dict(_OPENROUTER_STATIC_PRICING)
 
-async def _fetch_openrouter_pricing() -> dict[str, dict[str, float]]:
+
+async def refresh_openrouter_pricing() -> bool:
+    """Refresh the process cache outside request workflows.
+
+    Failure intentionally leaves the static/previous cache intact so cost
+    tracking stays local and deterministic during an OpenRouter outage.
+    """
     global _openrouter_pricing_cache
-    if _openrouter_pricing_cache is not None:
-        return _openrouter_pricing_cache
-    
-    pricing_map = {}
+    pricing_map: dict[str, dict[str, float]] = {}
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get("https://openrouter.ai/api/v1/models")
+            response = await client.get(f"{settings.openrouter_base_url.rstrip('/')}/models")
             if response.status_code == 200:
                 data = response.json()
                 for model_data in data.get("data", []):
@@ -58,13 +73,23 @@ async def _fetch_openrouter_pricing() -> dict[str, dict[str, float]]:
                         "prompt": prompt_rate,
                         "completion": completion_rate
                     }
-                _openrouter_pricing_cache = pricing_map
-                logger.info("Successfully fetched and cached OpenRouter model pricing.")
-                return pricing_map
+                if pricing_map:
+                    # Keep static known-model prices as a fallback for an
+                    # incomplete catalog response.
+                    _openrouter_pricing_cache = {**_OPENROUTER_STATIC_PRICING, **pricing_map}
+                    logger.info("Refreshed OpenRouter pricing cache with %d models.", len(pricing_map))
+                    return True
     except Exception as e:
         logger.warning("Failed to fetch OpenRouter model pricing from API: %s", e)
-    
-    return {}
+    return False
+
+
+async def run_openrouter_pricing_refresh() -> None:
+    """Refresh pricing at startup and periodically; never runs in request paths."""
+    interval = max(60, settings.openrouter_pricing_refresh_seconds)
+    while True:
+        await refresh_openrouter_pricing()
+        await asyncio.sleep(interval)
 
 # Initialize global cache
 try:
@@ -79,7 +104,7 @@ async def _post_with_retry(
     url: str,
     headers: dict,
     json_payload: dict,
-    max_retries: int = 3,
+    max_retries: int = 4,
     initial_delay: float = 2.0,
 ) -> httpx.Response:
     """Execute HTTP POST with exponential backoff on 429 Rate Limits and transient errors."""
@@ -91,11 +116,11 @@ async def _post_with_retry(
                     retry_after = response.headers.get("retry-after")
                     if retry_after:
                         try:
-                            delay = min(float(retry_after), 10.0)
+                            delay = max(float(retry_after), 1.0) + random.uniform(0.5, 1.5)
                         except ValueError:
-                            delay = initial_delay * (2 ** attempt)
+                            delay = (initial_delay * (2 ** attempt)) + random.uniform(0.5, 1.5)
                     else:
-                        delay = initial_delay * (2 ** attempt)
+                        delay = (initial_delay * (2 ** attempt)) + random.uniform(0.5, 1.5)
                     logger.warning(
                         "Rate limit 429 encountered from LLM API. Retrying in %.1fs (attempt %d/%d)...",
                         delay, attempt + 1, max_retries
@@ -106,14 +131,21 @@ async def _post_with_retry(
             return response
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429 and attempt < max_retries:
-                delay = initial_delay * (2 ** attempt)
-                logger.warning("Rate limit 429 encountered from LLM API. Retrying in %.1fs...", delay)
+                retry_after = e.response.headers.get("retry-after")
+                try:
+                    delay = max(float(retry_after), 1.0) + random.uniform(0.5, 1.5) if retry_after else ((initial_delay * (2 ** attempt)) + random.uniform(0.5, 1.5))
+                except ValueError:
+                    delay = (initial_delay * (2 ** attempt)) + random.uniform(0.5, 1.5)
+                logger.warning(
+                    "Rate limit 429 encountered from LLM API. Retrying in %.1fs (attempt %d/%d)...",
+                    delay, attempt + 1, max_retries
+                )
                 await asyncio.sleep(delay)
                 continue
             raise
         except (httpx.ConnectError, httpx.TimeoutException) as e:
             if attempt < max_retries:
-                delay = 1.5 * (2 ** attempt)
+                delay = (1.5 * (2 ** attempt)) + random.uniform(0.2, 0.8)
                 logger.warning("Network error connecting to LLM API (%s). Retrying in %.1fs...", e, delay)
                 await asyncio.sleep(delay)
                 continue
@@ -279,28 +311,16 @@ class OpenRouterClient:
                         continue
 
     async def health_check(self) -> tuple[bool, float]:
-        """Check if OpenRouter is available by pinging it and measuring latency."""
+        """Check OpenRouter connectivity without a billable generation call."""
         import time
         if not self.api_key:
             return False, 0.0
         try:
             start_time = time.time()
-            headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "http://localhost:8000",
-                "X-Title": "AI Database Analyst Agent",
-            }
-            payload = {
-                "model": self.model,
-                "messages": [{"role": "user", "content": "ping"}],
-                "max_tokens": 1,
-            }
-            response = await self.client.post(
-                f"{self.base_url}/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=5.0
+            response = await self.client.get(
+                f"{self.base_url}/models",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                timeout=5.0,
             )
             response.raise_for_status()
             latency = (time.time() - start_time) * 1000
@@ -309,23 +329,10 @@ class OpenRouterClient:
             return False, 0.0
 
     async def get_pricing(self) -> dict[str, float]:
-        """Get model pricing per 1M tokens."""
+        """Return cached/static pricing only; this method never performs I/O."""
         if "free" in self.model:
             return {"prompt": 0.0, "completion": 0.0}
-        
-        api_pricing = await _fetch_openrouter_pricing()
-        if self.model in api_pricing:
-            return api_pricing[self.model]
-        
-        # Fallbacks for popular models (per 1M tokens)
-        fallbacks = {
-            "google/gemini-2.5-flash": {"prompt": 0.075, "completion": 0.30},
-            "google/gemini-2.5-pro": {"prompt": 1.25, "completion": 5.00},
-            "anthropic/claude-3.5-sonnet": {"prompt": 3.00, "completion": 15.00},
-            "meta-llama/llama-3.3-70b-instruct": {"prompt": 0.60, "completion": 0.60},
-            "deepseek/deepseek-chat": {"prompt": 0.14, "completion": 0.28},
-        }
-        return fallbacks.get(self.model, {"prompt": 0.0, "completion": 0.0})
+        return dict(_openrouter_pricing_cache.get(self.model, _OPENROUTER_UNKNOWN_PRICE))
 
 
 class GroqClient:
@@ -405,26 +412,16 @@ class GroqClient:
                         continue
 
     async def health_check(self) -> tuple[bool, float]:
-        """Check if Groq is available by pinging it and measuring latency."""
+        """Check Groq connectivity without a billable generation call."""
         import time
         if not self.api_key:
             return False, 0.0
         try:
             start_time = time.time()
-            headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            }
-            payload = {
-                "model": self.model,
-                "messages": [{"role": "user", "content": "ping"}],
-                "max_tokens": 1,
-            }
-            response = await self.client.post(
-                f"{self.base_url}/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=5.0
+            response = await self.client.get(
+                f"{self.base_url}/models",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                timeout=5.0,
             )
             response.raise_for_status()
             latency = (time.time() - start_time) * 1000
@@ -523,26 +520,16 @@ class OpenAIClient:
                         continue
 
     async def health_check(self) -> tuple[bool, float]:
-        """Check if OpenAI is available by pinging it and measuring latency."""
+        """Check OpenAI connectivity without a billable generation call."""
         import time
         if not self.api_key:
             return False, 0.0
         try:
             start_time = time.time()
-            headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            }
-            payload = {
-                "model": self.model,
-                "messages": [{"role": "user", "content": "ping"}],
-                "max_tokens": 1,
-            }
-            response = await self.client.post(
-                f"{self.base_url}/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=5.0
+            response = await self.client.get(
+                f"{self.base_url}/models",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                timeout=5.0,
             )
             response.raise_for_status()
             latency = (time.time() - start_time) * 1000
@@ -586,6 +573,72 @@ def get_langchain_llm(
     """Factory function to get a LangChain LLM instance (ChatOpenAI or ChatOllama)."""
     cb = ContextTokenTrackerCallback(stage=stage, component=component, purpose=purpose, tier=tier)
     provider = settings.llm_provider
+    # Some managed Windows environments block tiktoken's native extension.
+    # langchain_openai imports tiktoken eagerly, so importing ChatOpenAI can
+    # fail even though an OpenAI-compatible endpoint (Groq/OpenRouter) works
+    # perfectly.  Keep the orchestration runnable with a LangChain Runnable
+    # that calls the compatible endpoint directly and preserves usage data.
+    if ChatOpenAI is None and provider in {"openai", "groq", "openrouter"}:
+        from langchain_core.messages import AIMessage
+        from langchain_core.runnables import RunnableLambda
+
+        model_name = {
+            "openai": settings.openai_model if tier == "primary" else settings.openai_fast_model,
+            "groq": settings.groq_model if tier == "primary" else settings.groq_fast_model,
+            "openrouter": settings.openrouter_model if tier == "primary" else settings.openrouter_fast_model,
+        }[provider]
+        api_key = {
+            "openai": settings.openai_api_key,
+            "groq": settings.groq_api_key,
+            "openrouter": settings.openrouter_api_key,
+        }[provider]
+        base_url = {
+            "openai": settings.openai_base_url,
+            "groq": settings.groq_base_url,
+            "openrouter": settings.openrouter_base_url,
+        }[provider].rstrip("/")
+
+        async def _invoke_compatible(prompt_input):
+            if hasattr(prompt_input, "to_string"):
+                prompt = prompt_input.to_string()
+            elif isinstance(prompt_input, (list, tuple)):
+                prompt = "\n".join(str(getattr(message, "content", message)) for message in prompt_input)
+            else:
+                prompt = str(prompt_input)
+            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+            if provider == "openrouter":
+                headers.update({"HTTP-Referer": "http://localhost:8000", "X-Title": "AI Database Analyst Agent"})
+            started = time.perf_counter()
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await _post_with_retry(
+                    client,
+                    f"{base_url}/chat/completions",
+                    headers=headers,
+                    json_payload={
+                        "model": model_name,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": temperature,
+                    },
+                )
+            payload = response.json()
+            text = (payload.get("choices") or [{}])[0].get("message", {}).get("content", "").strip()
+            raw_usage = payload.get("usage") or {}
+            prompt_tokens = int(raw_usage.get("prompt_tokens") or len(prompt) // 4)
+            completion_tokens = int(raw_usage.get("completion_tokens") or len(text) // 4)
+            usage = token_usage_var.get()
+            usage["prompt_tokens"] += prompt_tokens
+            usage["completion_tokens"] += completion_tokens
+            record_llm_trace({
+                "stage": stage, "component": component, "purpose": purpose, "tier": tier,
+                "model": model_name, "prompt_chars": len(prompt), "output_chars": len(text),
+                "estimated_input_tokens": prompt_tokens, "estimated_output_tokens": completion_tokens,
+                "latency_ms": round((time.perf_counter() - started) * 1000, 2),
+                "success": True, "cache_hit": False,
+            })
+            return AIMessage(content=text, response_metadata={"token_usage": raw_usage, "model": model_name})
+
+        logger.warning("ChatOpenAI unavailable; using OpenAI-compatible Runnable fallback for %s.", provider)
+        return RunnableLambda(_invoke_compatible)
     if provider == "openai":
         model_name = (
             settings.openai_model

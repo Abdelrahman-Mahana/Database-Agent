@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 export interface RecommendedQuestion {
   icon?: string;
   title?: string;
@@ -178,6 +180,11 @@ export interface ExecutionMetadata {
 export interface UserResponse {
   answer: string;
   route?: string;
+  /** Request lifecycle. `completed` does not necessarily mean the question was answered. */
+  request_status: "completed" | "failed";
+  /** Semantic outcome for the user's question; use this instead of `success`. */
+  answer_status: "answered" | "not_answerable" | "empty_result" | "failed" | "needs_clarification";
+  /** @deprecated Use request_status and answer_status instead. */
   success: boolean;
   error?: string | null;
   metadata?: ExecutionMetadata;

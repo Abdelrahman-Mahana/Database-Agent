@@ -59,47 +59,47 @@ The system is split into a **FastAPI + LangChain backend** (the agent, SQL safet
 
 ---
 
-## How a Question Becomes an Answer
+## How a Question Becomes an Answer (12-Step Enterprise Flow)
 
 ```
 User question (AR/EN)
         │
         ▼
-Intent Classification ──► off_topic → guided refusal
-        │ database / schema
-        ▼
-Schema Grounding  (prune full schema to the relevant tables/columns)
+1.  Semantic QuerySpec Builder (Intent, metrics, dimensions, filters)
         │
         ▼
-Simple? ── Planner (multi-step decomposition for compound questions)
+2.  Multi-Signal Candidate Retrieval (Lexical TF-IDF + Vector ANN + Alias Index)
         │
         ▼
-SQL Generation (self-consistency candidates) ──► AST Validation ──► Execute
-        │                                              │
-        │                                     on failure: Auto-Repair (bounded)
-        ▼
-Analytics Engine (stats, outliers) + Chart Suggestion
+3.  Adaptive Schema Grounding (Steiner Tree Graph Join Expansion & Pruning)
         │
         ▼
-Report Synthesis (analyst-voice) ──► optional Verification pass
+4.  Execution Strategy (Single-pass Priority vs Multi-step Decomposition)
         │
         ▼
-Evaluation Framework scores the request (quality / confidence)
+5.  SQL Generation (Self-Consistency Tiers + AST / EXPLAIN Validation)
         │
         ▼
-ChatResponse → frontend
+6.  Evidence-Based Cost Guard (Cartesian check, DB EXPLAIN cost, fail-closed)
+        │
+        ▼
+7.  Safe Execution & Bounded Auto-Repair (Read-only TX, timeouts, row/byte bounds)
+        │
+        ▼
+8.  Deterministic Fact Generation (Row counts, scalars, aggregations, top records)
+        │
+        ▼
+9.  Statistical Analytics Engine (Outliers, distribution, correlations)
+        │
+        ▼
+10. Constrained Report Synthesis (Strictly grounded in deterministic facts)
+        │
+        ▼
+11. Answer Verification & Claim-Level Confidence Scoring
+        │
+        ▼
+12. Audit Trail, Multi-Tier Caching (L1 RAM / L2 Redis / L3 Postgres), Telemetry
 ```
-
----
-
-## Recently Connected: the Evaluation Framework
-
-While reviewing the codebase we found a complete, well-tested **AI Evaluation Framework** (`backend/app/evaluation/`) — metrics collection, confidence/quality scoring, and telemetry — that existed in the code but was never wired into the app or exposed via the API. It's now connected:
-
-- Every `POST /chat` call is scored automatically (best-effort, never blocks the response) and the score is attached to the response as `quality_score` / `confidence_score`.
-- New endpoints expose the results: `GET /evaluation/history`, `GET /evaluation/stats`, `DELETE /evaluation/history`.
-
-See [`app/api/evaluation.py`](backend/app/api/evaluation.py) and the updated [`app/api/chat.py`](backend/app/api/chat.py).
 
 ---
 
@@ -110,27 +110,31 @@ Database-Agent-AI/
 ├── docker-compose.yml           # Dev stack (backend + frontend, live-mounted)
 ├── docker-compose.prod.yml      # Production stack (standalone images)
 ├── .gitignore
-├── assets/                      # README screenshots (add dashboard.png here)
+├── assets/                      # README screenshots
 │
-├── backend/                     # FastAPI + LangChain service
+├── backend/                     # FastAPI + LangChain backend service
 │   ├── app/
-│   │   ├── main.py                  # FastAPI entry point, DI container, middleware
-│   │   ├── agents/                  # AnalystAgent pipeline: intent → plan → SQL → repair
-│   │   ├── api/                     # One router module per REST resource
-│   │   ├── config/                  # Configuration via pydantic-settings
-│   │   ├── database/                # SQLAlchemy engine/session, seed helpers
-│   │   ├── evaluation/              # Request scoring framework (see above)
-│   │   ├── llm/                     # Provider clients (OpenAI/OpenRouter/Groq/Ollama) & prompts
-│   │   ├── schema_catalog/          # Cached schema catalogs per connected DB
-│   │   ├── schema_grounding/        # Prunes full schema to question-relevant subset
-│   │   ├── schemas/                 # Pydantic request/response models
-│   │   ├── security/                # Cost guard & data masking
-│   │   ├── semantic/                # Deterministic question/column understanding
-│   │   ├── services/                # Domain services (memory, reports, SQL, onboarding)
-│   │   ├── sql/                     # SQL build & Auto-repair pipeline
-│   │   ├── telemetry/               # Structured logging setup
-│   │   └── utils/                   # Caching, cost routing, token tracking, validators
-│   ├── data/schema_catalog/         # Cached per-database schema catalogs (generated)
+│   │   ├── main.py                  # FastAPI entry point, middleware, routes
+│   │   ├── agents/                  # AnalystAgent & GraphOrchestrator pipeline
+│   │   ├── api/                     # REST API resource routers
+│   │   ├── config/                  # Settings via pydantic-settings
+│   │   ├── database/                # SQLAlchemy engines, SystemStore, RedisCoordinator
+│   │   ├── evaluation/              # Request confidence & quality scoring
+│   │   ├── jobs/                    # Durable background onboarding queue
+│   │   ├── llm/                     # Provider models & verified prompts
+│   │   ├── schema_catalog/          # Authoritative normalized catalog storage & retrieval
+│   │   ├── schema_grounding/        # Multi-signal grounding & Steiner tree relationship graph
+│   │   ├── schemas/                 # Pydantic validation models
+│   │   ├── security/                # Plan-aware cost guard & sensitive data masking
+│   │   ├── semantic/                # QuerySpec builder & intent routing
+│   │   ├── services/                # Domain services (SQL, reports, feedback, onboarding)
+│   │   ├── sql/                     # AST validator, executor, and result verifier
+│   │   ├── telemetry/               # Structured logging & audit trace
+│   │   └── utils/                   # 3-tier cache, rate limiting, token tracking
+│   ├── tests/                       # Pytest test suite (130+ unit & scale tests)
+│   ├── chinook.db                   # Demo SQLite database
+│   ├── .env.example                 # Environment variables template
+│   └── pyproject.toml               # Python package config (uv)
 │   ├── eval/                        # Offline golden-dataset evaluation scripts
 │   ├── scripts/                     # Manual dev utilities (not part of pytest)
 │   ├── tests/                       # Pytest suite
@@ -240,6 +244,12 @@ The full interactive reference is always available at `/docs` (Swagger) once the
 | `GET /schema` | Full schema tree of the active database |
 | `GET /evaluation/history`, `GET /evaluation/stats` | Per-request quality/confidence scores and aggregates |
 | `GET /stats`, `GET /health` | Usage/cost dashboard and health check |
+
+`POST /chat` distinguishes request processing from whether the question could be
+answered. Use `request_status` (`completed` or `failed`) and `answer_status`
+(`answered`, `not_answerable`, `empty_result`, `needs_clarification`, or
+`failed`). The legacy `success` field is retained for compatibility and only
+indicates that the request pipeline completed.
 
 *(Note: Ghost architecture files and mock endpoints from previous phases have been completely excised to maintain a clean, active codebase!)*
 

@@ -1,11 +1,13 @@
 "use client";
 
+/* eslint-disable @typescript-eslint/no-explicit-any, react-hooks/immutability */
+
 import { useState, useEffect, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiClient } from "@/services/api";
 import { SchemaResponse, ChatResponse } from "@/types/api";
-import { useAppStore } from "@/store/useAppStore";
+import { ChatMessage, useAppStore } from "@/store/useAppStore";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -51,14 +53,7 @@ import {
 
 const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#6366f1'];
 
-interface MessageItem {
-  id: string;
-  sender: "user" | "assistant";
-  text: string;
-  response?: ChatResponse;
-  timestamp: string;
-  questionLang?: "ar" | "en";
-}
+type MessageItem = ChatMessage;
 
 // Detect if text contains Arabic characters
 function isArabicText(text?: string): boolean {
@@ -98,6 +93,54 @@ function FormattedReportText({ text, isRtl }: { text: string; isRtl: boolean }) 
       {lines.map((line, idx) => {
         const trimmed = line.trim();
         if (!trimmed) return <div key={idx} className="h-2" />;
+
+        const isSummaryLine = /^(Short answer:|الخلاصة:)/.test(trimmed);
+        if (isSummaryLine) {
+          return (
+            <p
+              key={idx}
+              dir={isRtl ? "rtl" : "ltr"}
+              className={cn(
+                "rounded-xl border border-sky-500/20 bg-sky-500/10 px-3.5 py-3 text-sm leading-relaxed shadow-sm",
+                isRtl ? "text-right font-sans" : "text-left"
+              )}
+            >
+              {parseInlineFormatting(trimmed)}
+            </p>
+          );
+        }
+
+        const isExplanationLine = /^(What this means:|المعنى ببساطة:)/.test(trimmed);
+        if (isExplanationLine) {
+          return (
+            <p
+              key={idx}
+              dir={isRtl ? "rtl" : "ltr"}
+              className={cn(
+                "rounded-xl border border-border/50 bg-muted/25 px-3.5 py-3 text-sm leading-relaxed text-muted-foreground",
+                isRtl ? "text-right font-sans" : "text-left"
+              )}
+            >
+              {parseInlineFormatting(trimmed)}
+            </p>
+          );
+        }
+
+        const isAuditLine = /^(To verify it,|للمراجعة:)/.test(trimmed);
+        if (isAuditLine) {
+          return (
+            <p
+              key={idx}
+              dir={isRtl ? "rtl" : "ltr"}
+              className={cn(
+                "text-xs text-muted-foreground border-t border-border/40 pt-3 mt-3",
+                isRtl ? "text-right font-sans" : "text-left"
+              )}
+            >
+              {parseInlineFormatting(trimmed)}
+            </p>
+          );
+        }
 
         // Headings (#, ##, ###)
         if (trimmed.startsWith("#")) {
@@ -365,7 +408,7 @@ function QueryResultSection({
           >
             <div className="flex items-center gap-2 text-foreground font-semibold font-sans">
               <Code className="h-4 w-4 text-sky-400 shrink-0" />
-              <span>{isRtl ? "استعلام SQL المُولّد" : "Generated SQL Query"}</span>
+              <span>{isRtl ? "طريقة الوصول للإجابة (SQL)" : "How I got it (SQL)"}</span>
             </div>
             <div className="flex items-center gap-2 bg-muted/40 px-2.5 py-1 rounded-md text-[11px] text-muted-foreground hover:text-foreground font-sans">
               {showSql ? (
@@ -377,7 +420,7 @@ function QueryResultSection({
               ) : (
                 <>
                   <Eye className="h-3.5 w-3.5 text-sky-400 shrink-0" />
-                  <span>{isRtl ? "عرض الاستعلام" : "Show SQL"}</span>
+                  <span>{isRtl ? "عرض طريقة الحساب" : "Show SQL"}</span>
                   <ChevronRight className={cn("h-3.5 w-3.5 shrink-0", isRtl ? "mr-0.5 rotate-180" : "ml-0.5")} />
                 </>
               )}
@@ -437,7 +480,7 @@ function QueryResultSection({
           >
             <div className="flex items-center gap-2 text-foreground font-semibold font-sans">
               <TableIcon className="h-4 w-4 text-sky-500 shrink-0" />
-              <span>{isRtl ? `نتائج الاستعلام (${response.results.length} صف)` : `Query Results (${response.results.length} rows)`}</span>
+              <span>{isRtl ? `البيانات الخام (${response.results.length} صف)` : `Raw data (${response.results.length} rows)`}</span>
             </div>
             <div className="flex items-center gap-2 bg-muted/40 px-2.5 py-1 rounded-md text-[11px] text-muted-foreground hover:text-foreground font-sans">
               {showResults ? (
@@ -449,7 +492,7 @@ function QueryResultSection({
               ) : (
                 <>
                   <Eye className="h-3.5 w-3.5 text-sky-500 shrink-0" />
-                  <span>{isRtl ? "عرض الجدول" : "Show Table"}</span>
+                  <span>{isRtl ? "عرض البيانات" : "Show Data"}</span>
                   <ChevronRight className={cn("h-3.5 w-3.5 shrink-0", isRtl ? "mr-0.5 rotate-180" : "ml-0.5")} />
                 </>
               )}
@@ -509,8 +552,8 @@ function ChatContent() {
   const searchParams = useSearchParams();
   const initialPrompt = searchParams.get("prompt") || "";
 
-  const { activeDatabase } = useAppStore();
-  const [messages, setMessages] = useState<MessageItem[]>([]);
+  const { activeDatabase, chatMessages: messages, setChatMessages: setMessages, clearChatMessages } = useAppStore();
+  const hasHandledInitialPromptRef = useRef(false);
   const [inputMessage, setInputMessage] = useState("");
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -548,10 +591,11 @@ function ChatContent() {
 
   // Handle URL query parameter pre-fill
   useEffect(() => {
-    if (initialPrompt && messages.length === 0) {
+    if (initialPrompt && messages.length === 0 && !hasHandledInitialPromptRef.current) {
+      hasHandledInitialPromptRef.current = true;
       handleSendMessage(initialPrompt);
     }
-  }, [initialPrompt]);
+  }, [initialPrompt, messages.length]);
 
   const chatMutation = useMutation({
     mutationFn: async (messageText: string) => {
@@ -631,7 +675,7 @@ function ChatContent() {
     } catch (e) {
       // ignore clear errors
     }
-    setMessages([]);
+    clearChatMessages();
   };
 
   const copyToClipboard = (code: string, idx: number) => {

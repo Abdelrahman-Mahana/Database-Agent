@@ -57,7 +57,16 @@ def compute_db_fingerprint(engine_or_url: str | Engine) -> str:
 
 @dataclass
 class DatabaseContext:
-    """Holds all active in-RAM context for a specific database fingerprint."""
+    """Holds ephemeral in-worker RAM cache (L1) for a specific database fingerprint.
+
+    Authoritative metadata is persisted in SystemStore. DatabaseContext serves solely
+    as a fast, in-memory worker accelerator for:
+    - Connection engine and sessionmaker
+    - Parsed schema text and structure
+    - Schema Relationship Graph (FK join paths)
+    - TF-IDF and Embedding search retrievers
+    - Fast inverted keyword index
+    """
 
     fingerprint: str
     url: str
@@ -75,14 +84,19 @@ class DatabaseContext:
 
     # Intelligence & Navigation
     catalog: Optional[Any] = None  # SchemaCatalog
+    catalog_version: int = 0
+    catalog_loaded_at: float = 0.0
     relationship_graph: Optional[Any] = None  # SchemaRelationshipGraph
     tfidf_retriever: Optional[Any] = None  # TfidfTableRetriever
     embedding_retriever: Optional[Any] = None  # EmbeddingTableRetriever
+    alias_index: Optional[Any] = None  # AliasIndex
+    candidate_retriever: Optional[Any] = None  # HybridCandidateRetriever
     keyword_to_tables: Dict[str, Set[str]] = field(default_factory=dict)
     table_names_set: Set[str] = field(default_factory=set)
     total_tables: int = 0
     total_columns: int = 0
     indexes_built: bool = False
+    _indexing: bool = field(default=False, repr=False, compare=False)
 
     # Lifecycle & Caching
     created_at: float = field(default_factory=time.time)
@@ -100,107 +114,183 @@ class DatabaseContext:
         """Update last accessed timestamp."""
         self.last_accessed_at = time.time()
 
+    def is_stale_against_version(self, authoritative_version: int) -> bool:
+        """Check if this worker's cached catalog is behind authoritative persistent storage."""
+        return authoritative_version > self.catalog_version
+
+    def rehydrate_catalog_if_stale(self) -> bool:
+        """Check authoritative store and rehydrate in-RAM catalog and indexes if stale."""
+        try:
+            from app.database.system_store import system_store
+            latest = system_store.get_latest_catalog_version(self.fingerprint)
+            if latest and self.is_stale_against_version(latest.version):
+                logger.info(
+                    "DatabaseContext is stale (cached v%s vs authoritative store v%s), rehydrating",
+                    self.catalog_version, latest.version
+                )
+                from app.schema_catalog.catalog_builder import CatalogBuilder
+                from app.services.sql_service import SchemaService
+                service = SchemaService(bind_engine=self.engine)
+                cb = CatalogBuilder(schema_service=service)
+                cat = cb._load_from_store(self.fingerprint)
+                if cat:
+                    self.catalog = cat
+                    self.catalog_version = getattr(cat, "glossary_version", latest.version)
+                    self.catalog_loaded_at = time.time()
+                    self.indexes_built = False
+                    self.ensure_indexes(force=False)
+                    return True
+        except Exception as e:
+            logger.debug("Error checking catalog freshness in DatabaseContext: %s", e)
+        return False
+
     def get_table_summary(self) -> str:
         """Return a compact one-line summary of tables in the database."""
         if not self.table_names_set and self.schema:
             self.table_names_set = set(self.schema.keys())
         return ", ".join(sorted(self.table_names_set))
 
+    @property
+    def compact_summary(self) -> str:
+        """Token-efficient database overview (~1 line per table, table name + column count)."""
+        if not self.schema:
+            return "No schema loaded."
+        lines = [f"Database: {self.database_name} ({self.total_tables} tables, {self.total_columns} columns)"]
+        for tname in sorted(self.schema.keys()):
+            n_cols = len(self.schema[tname].get("columns", []))
+            lines.append(f"  {tname} ({n_cols} cols)")
+        return "\n".join(lines)
+
     def ensure_indexes(self, force: bool = False) -> None:
         """
         Prepare catalog, join graph, TF-IDF retriever, embedding retriever,
         and inverted keyword index ONCE ahead of time in RAM.
         """
-        if self.indexes_built and not force:
+        if (self.indexes_built and not force) or self._indexing:
             return
 
-        # 1. Join Graph
-        if self.schema and (self.relationship_graph is None or force):
-            try:
-                from app.schema_grounding.relationship_graph import SchemaRelationshipGraph
-                self.relationship_graph = SchemaRelationshipGraph(self.schema)
-            except Exception as e:
-                logger.debug("Failed to build relationship_graph in DatabaseContext: %s", e)
-
-        # 2. Schema Catalog
-        if (self.catalog is None or force) and self.fingerprint:
-            try:
-                from app.schema_catalog.catalog_builder import CatalogBuilder
-                from app.services.sql_service import SchemaService
-                service = SchemaService(bind_engine=self.engine)
-                cb = CatalogBuilder(schema_service=service)
-                self.catalog = cb.get_or_build(force_rebuild=force)
-            except Exception as e:
-                logger.debug("Failed to load catalog into DatabaseContext: %s", e)
-
-        # 3. TF-IDF & Embedding Retrievers
-        if self.catalog is not None and getattr(self.catalog, "tables", None):
-            try:
-                from app.schema_catalog.retrieval import TfidfTableRetriever
-                self.tfidf_retriever = TfidfTableRetriever(self.catalog)
-            except Exception as e:
-                logger.debug("Failed to build tfidf_retriever in DatabaseContext: %s", e)
-
-            if getattr(self.catalog, "embeddings_built", False):
+        self._indexing = True
+        try:
+            # 1. Join Graph
+            if self.schema and (self.relationship_graph is None or force):
                 try:
-                    from app.schema_catalog.embedding_retrieval import EmbeddingTableRetriever
-                    self.embedding_retriever = EmbeddingTableRetriever(self.catalog)
+                    from app.schema_grounding.relationship_graph import SchemaRelationshipGraph
+                    self.relationship_graph = SchemaRelationshipGraph(self.schema)
                 except Exception as e:
-                    logger.debug("Failed to build embedding_retriever in DatabaseContext: %s", e)
+                    logger.debug("Failed to build relationship_graph in DatabaseContext: %s", e)
 
-        # 4. Inverted Keyword Index (for 0ms seed table matching)
-        if self.schema and (not self.keyword_to_tables or force):
-            kw_map: Dict[str, Set[str]] = {}
-            for table_name, info in self.schema.items():
-                t_lower = table_name.lower()
-                # Table variations
-                variations = {
-                    t_lower,
-                    t_lower + "s",
-                    t_lower + "es",
-                }
-                if t_lower.endswith("y"):
-                    variations.add(t_lower[:-1] + "ies")
-                if t_lower.endswith("s") and not t_lower.endswith("ss"):
-                    variations.add(t_lower[:-1])
-                if t_lower.endswith("es"):
-                    variations.add(t_lower[:-2])
-                if t_lower.endswith("ies"):
-                    variations.add(t_lower[:-3] + "y")
+            # 2. Schema Catalog
+            if (self.catalog is None or force) and self.fingerprint:
+                try:
+                    from app.schema_catalog.catalog_builder import CatalogBuilder
+                    from app.services.sql_service import SchemaService
+                    service = SchemaService(bind_engine=self.engine)
+                    cb = CatalogBuilder(schema_service=service)
+                    if self.catalog is None:
+                        self.catalog = cb.get_or_build(force_rebuild=force, raw_schema=self.schema)
+                except Exception as e:
+                    logger.debug("Failed to load catalog into DatabaseContext: %s", e)
 
-                for v in variations:
-                    if len(v) > 2:
-                        kw_map.setdefault(v, set()).add(table_name)
+            if self.catalog:
+                self.catalog_version = getattr(self.catalog, "glossary_version", 0)
+                self.catalog_loaded_at = time.time()
 
-                # Column names
-                for col in info.get("columns", []):
-                    c_lower = col["name"].lower()
-                    if len(c_lower) >= 3:
-                        kw_map.setdefault(c_lower, set()).add(table_name)
+            # 3. TF-IDF, Embedding, Alias, and Hybrid Candidate Retrievers
+            if self.catalog is not None and getattr(self.catalog, "tables", None):
+                try:
+                    from app.schema_catalog.retrieval import TfidfTableRetriever, AliasIndex, HybridCandidateRetriever
+                    self.tfidf_retriever = TfidfTableRetriever(self.catalog)
+                    self.alias_index = AliasIndex(self.catalog)
+                except Exception as e:
+                    logger.debug("Failed to build tfidf_retriever or alias_index in DatabaseContext: %s", e)
 
-            # Business glossary synonyms if available
-            if self.catalog and getattr(self.catalog, "tables", None):
-                for tname, prof in self.catalog.tables.items():
-                    for syn in prof.synonyms:
-                        syn_l = syn.strip().lower()
-                        if len(syn_l) > 2:
-                            kw_map.setdefault(syn_l, set()).add(tname)
-                    for col in prof.columns:
-                        for syn in col.synonyms:
+                if getattr(self.catalog, "embeddings_built", False):
+                    try:
+                        from app.schema_catalog.embedding_retrieval import EmbeddingTableRetriever
+                        self.embedding_retriever = EmbeddingTableRetriever(self.catalog)
+                    except Exception as e:
+                        logger.debug("Failed to build embedding_retriever in DatabaseContext: %s", e)
+
+                try:
+                    from app.schema_catalog.retrieval import HybridCandidateRetriever
+                    self.candidate_retriever = HybridCandidateRetriever(
+                        catalog=self.catalog,
+                        tfidf_retriever=self.tfidf_retriever,
+                        embedding_retriever=self.embedding_retriever,
+                        alias_index=self.alias_index,
+                    )
+                except Exception as e:
+                    logger.debug("Failed to build candidate_retriever in DatabaseContext: %s", e)
+
+            # 4. Inverted Keyword Index (for 0ms seed table matching)
+            if self.schema and (not self.keyword_to_tables or force):
+                kw_map: Dict[str, Set[str]] = {}
+
+                def add_variations(term: str, table_name: str) -> None:
+                    term = term.lower().strip('"')
+                    if not term:
+                        return
+                    variations = {
+                        term,
+                        term + "s",
+                        term + "es",
+                    }
+                    if term.endswith("y"):
+                        variations.add(term[:-1] + "ies")
+                    if term.endswith("s") and not term.endswith("ss"):
+                        variations.add(term[:-1])
+                    if term.endswith("es"):
+                        variations.add(term[:-2])
+                    if term.endswith("ies"):
+                        variations.add(term[:-3] + "y")
+
+                    for v in variations:
+                        if len(v) > 2:
+                            kw_map.setdefault(v, set()).add(table_name)
+
+                for table_name, info in self.schema.items():
+                    t_lower = table_name.lower()
+                    bare_table = t_lower.rsplit(".", 1)[-1]
+
+                    # Table variations: qualified name, bare name, and useful
+                    # underscore-separated business tokens (res_company -> company).
+                    add_variations(t_lower, table_name)
+                    add_variations(bare_table, table_name)
+                    for part in bare_table.split("_"):
+                        if part not in {"rel", "res", "ir", "hr", "crm", "ivf", "opd"}:
+                            add_variations(part, table_name)
+
+                    # Column names
+                    for col in info.get("columns", []):
+                        c_lower = col["name"].lower()
+                        if len(c_lower) >= 3:
+                            kw_map.setdefault(c_lower, set()).add(table_name)
+
+                # Business glossary synonyms if available
+                if self.catalog and getattr(self.catalog, "tables", None):
+                    for tname, prof in self.catalog.tables.items():
+                        for syn in prof.synonyms:
                             syn_l = syn.strip().lower()
                             if len(syn_l) > 2:
                                 kw_map.setdefault(syn_l, set()).add(tname)
+                        for col in prof.columns:
+                            for syn in col.synonyms:
+                                syn_l = syn.strip().lower()
+                                if len(syn_l) > 2:
+                                    kw_map.setdefault(syn_l, set()).add(tname)
 
-            self.keyword_to_tables = kw_map
+                self.keyword_to_tables = kw_map
 
-        if not self.table_names_set and self.schema:
-            self.table_names_set = set(self.schema.keys())
+            if not self.table_names_set and self.schema:
+                self.table_names_set = set(self.schema.keys())
 
-        if self.schema:
-            self.total_tables = len(self.schema)
-            self.total_columns = sum(len(info.get("columns", [])) for info in self.schema.values())
+            if self.schema:
+                self.total_tables = len(self.schema)
+                self.total_columns = sum(len(info.get("columns", [])) for info in self.schema.values())
 
-        self.indexes_built = True
+            self.indexes_built = True
+        finally:
+            self._indexing = False
 
     def match_seed_tables_fast(self, text: str, max_tables: int = 15) -> Set[str]:
         """Fast 0ms token-lookup against the pre-computed inverted keyword index."""
@@ -208,14 +298,38 @@ class DatabaseContext:
             self.ensure_indexes()
 
         import re
-        tokens = set(re.findall(r'[\w\u0600-\u06FF]+', text.lower()))
-        matched: Set[str] = set()
+        ignored_tokens = {
+            "id", "ids", "first", "last", "top", "list", "show", "get",
+            "find", "records", "rows", "data", "database", "table", "tables",
+        }
+        tokens = {
+            token for token in re.findall(r'[\w\u0600-\u06FF]+', text.lower())
+            if token not in ignored_tokens
+        }
+        matched_scores: Dict[str, float] = {}
         for token in tokens:
             if token in self.keyword_to_tables:
-                matched.update(self.keyword_to_tables[token])
-                if len(matched) >= max_tables:
-                    break
-        return matched
+                for table_name in self.keyword_to_tables[token]:
+                    bare_table = table_name.lower().rsplit(".", 1)[-1]
+                    singular_token = token[:-3] + "y" if token.endswith("ies") else (
+                        token[:-1] if token.endswith("s") and len(token) > 3 else token
+                    )
+                    score = 1.0
+                    if token == bare_table or singular_token == bare_table:
+                        score += 3.0
+                    elif (
+                        bare_table.endswith("_" + token)
+                        or bare_table.startswith(token + "_")
+                        or bare_table.endswith("_" + singular_token)
+                        or bare_table.startswith(singular_token + "_")
+                    ):
+                        score += 2.0
+                    elif token in bare_table.split("_") or singular_token in bare_table.split("_"):
+                        score += 1.0
+                    matched_scores[table_name] = matched_scores.get(table_name, 0.0) + score
+
+        ordered = sorted(matched_scores, key=lambda t: (-matched_scores[t], t))
+        return set(ordered[:max_tables])
 
 
 class DatabaseContextManager:
