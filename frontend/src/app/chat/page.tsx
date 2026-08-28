@@ -851,9 +851,12 @@ function ChatContent() {
 
   const chatMutation = useMutation({
     mutationFn: async (messageText: string) => {
+      const timeoutMs = (preferences.timeoutSeconds || 180) * 1000;
       const res = await apiClient.post('/chat', {
         message: messageText,
         session_id: "default_session",
+      }, {
+        timeout: timeoutMs
       });
       return res.data as ChatResponse;
     },

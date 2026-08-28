@@ -24,11 +24,12 @@
 ## 🌟 Why Database Agent AI?
 
 Writing SQL queries is slow, and raw data grids are hard to interpret for decision-makers. 
-**Database Agent AI** transforms your database into a conversational partner. Powered by a **FastAPI + LangGraph** backend and a beautiful **Next.js** dashboard, it translates natural language into safe SQL, executes it, and synthesizes the results into a **deeply analytical, executive-ready report**.
+**Database Agent AI** transforms your database into a conversational partner. Powered by an enterprise-grade **FastAPI + LangGraph** backend and a beautiful modular **Next.js** dashboard, it translates natural language into safe SQL, executes it, and synthesizes the results into a **deeply analytical, executive-ready report**.
 
 - **Not just a query generator:** It acts like a Senior Data Analyst, explaining the *why* and *what it means* behind the numbers.
 - **Database-agnostic:** Works out-of-the-box with **PostgreSQL, MySQL, MariaDB, and SQLite**.
 - **Fully localized:** Flawless support for Arabic (including regional dialects) and Right-To-Left (RTL) formatting.
+- **Enterprise Clean Architecture:** Built on Domain-Driven Design principles ensuring scalable, maintainable, and highly modular codebase.
 
 ---
 
@@ -45,8 +46,8 @@ Native support for Right-To-Left (RTL) interfaces. Beautifully styled Markdown t
 - **Cost Guard:** Auto-enforced `LIMIT` clauses and full-table scan preventions.
 - **Data Masking:** Optional masking of PII (Personally Identifiable Information).
 
-### 📈 Smart Data Visualization
-Automatically detects data types and suggests the perfect chart (Line, Bar, Scatter) to visualize the results without requiring additional prompts.
+### 📈 Smart Data Visualization & Analytics
+Automatically detects data types and suggests the perfect chart (Line, Bar, Scatter) to visualize the results. Includes a comprehensive real-time dashboard for **AI Telemetry**, schema footprint, and incremental table profiling.
 
 ### 🧠 Advanced LangGraph Architecture
 Employs a multi-step **Plan-and-Execute** flow. If a generated query fails, the agent auto-repairs it using self-consistency loops and syntax error feedback.
@@ -54,6 +55,22 @@ Employs a multi-step **Plan-and-Execute** flow. If a generated query fails, the 
 ---
 
 ## 🏗️ System Architecture
+
+### Backend (Python/FastAPI)
+Structured using **Clean Architecture** to separate concerns and maximize testability:
+- `api/`: RESTful endpoints and routers.
+- `core/`: Configuration, security, exceptions, and telemetry.
+- `services/`: Core business logic (Database interaction, Report generation).
+- `agent/`: AI and LLM orchestration (LangChain, LangGraph, Prompts).
+- `models/`: Data contracts (Pydantic schemas and database models).
+- `utils/`: Reusable helper functions.
+
+### Frontend (Next.js/React)
+Follows a heavily modular, feature-driven directory structure:
+- `components/ui/`: Reusable, atomic UI components (shadcn/ui).
+- `components/features/`: Complex, encapsulated business logic components (e.g., `dashboard/`, `analytics/`).
+- `services/`: Centralized API clients and interceptors.
+- `types/`: Strict TypeScript definitions.
 
 ```mermaid
 graph TD;
@@ -85,8 +102,8 @@ graph TD;
 | **Agent Orchestration** | LangChain, LangGraph |
 | **LLM Providers** | OpenAI, OpenRouter, Groq, Ollama (Local) |
 | **SQL Engine** | SQLAlchemy 2.x, sqlglot, sqlparse |
-| **Frontend** | Next.js 16, React 19, TypeScript, Tailwind CSS, shadcn/ui, Zustand, Recharts |
-| **Testing & CI** | pytest, pytest-asyncio |
+| **Frontend** | Next.js 16, React 19, TypeScript, Tailwind CSS, shadcn/ui, Recharts, React Query |
+| **Testing & CI** | pytest, pytest-asyncio, ESLint |
 
 ---
 
@@ -154,13 +171,20 @@ The agent natively supports dynamic connection swapping without restarting the s
 
 ---
 
-## 🧪 Testing
+## 🧪 Testing & Code Quality
 
-The backend includes a comprehensive, 130+ unit & integration test suite covering the AST validator, memory TTLs, and the LangGraph orchestrator.
+The project enforces strict code quality and type safety:
 
+**Backend:** Includes a comprehensive, 130+ unit & integration test suite covering the AST validator, memory TTLs, and the LangGraph orchestrator.
 ```bash
 cd backend
 pytest tests/
+```
+
+**Frontend:** Fully typed with TypeScript and linted via ESLint.
+```bash
+cd frontend
+npm run lint
 ```
 
 ---
@@ -173,5 +197,5 @@ pytest tests/
 ---
 
 <div align="center">
-  <i>Built with ❤️ using AI. Licensed under MIT.</i>
+  <i>Built with ❤️. Licensed under MIT.</i>
 </div>

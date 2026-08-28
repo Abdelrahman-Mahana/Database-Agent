@@ -79,16 +79,20 @@ export default function SettingsPage() {
 
   const handleSaveAll = async (e: React.FormEvent) => {
     e.preventDefault();
-    await Promise.all([
-      prefMutation.mutateAsync({ key: "language", value: language }),
-      prefMutation.mutateAsync({ key: "arabicDialect", value: arabicDialect }),
-      prefMutation.mutateAsync({ key: "reportTone", value: reportTone }),
-      prefMutation.mutateAsync({ key: "preferredChart", value: preferredChart }),
-      prefMutation.mutateAsync({ key: "showSqlDefault", value: showSqlDefault }),
-      prefMutation.mutateAsync({ key: "showTableDefault", value: showTableDefault }),
-      prefMutation.mutateAsync({ key: "maxRowsLimit", value: maxRowsLimit }),
-      prefMutation.mutateAsync({ key: "timeoutSeconds", value: timeoutSeconds }),
-    ]);
+    // Run sequentially to prevent race conditions on the backend's read-modify-write cycle
+    const updates = [
+      { key: "language", value: language },
+      { key: "arabicDialect", value: arabicDialect },
+      { key: "reportTone", value: reportTone },
+      { key: "preferredChart", value: preferredChart },
+      { key: "showSqlDefault", value: showSqlDefault },
+      { key: "showTableDefault", value: showTableDefault },
+      { key: "maxRowsLimit", value: maxRowsLimit },
+      { key: "timeoutSeconds", value: timeoutSeconds },
+    ];
+    for (const update of updates) {
+      await prefMutation.mutateAsync(update);
+    }
 
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 3000);
@@ -104,16 +108,19 @@ export default function SettingsPage() {
     setMaxRowsLimit(100);
     setTimeoutSeconds(180);
 
-    await Promise.all([
-      prefMutation.mutateAsync({ key: "language", value: "auto" }),
-      prefMutation.mutateAsync({ key: "arabicDialect", value: "egyptian" }),
-      prefMutation.mutateAsync({ key: "reportTone", value: "executive" }),
-      prefMutation.mutateAsync({ key: "preferredChart", value: "bar" }),
-      prefMutation.mutateAsync({ key: "showSqlDefault", value: false }),
-      prefMutation.mutateAsync({ key: "showTableDefault", value: false }),
-      prefMutation.mutateAsync({ key: "maxRowsLimit", value: 100 }),
-      prefMutation.mutateAsync({ key: "timeoutSeconds", value: 180 }),
-    ]);
+    const updates = [
+      { key: "language", value: "auto" },
+      { key: "arabicDialect", value: "egyptian" },
+      { key: "reportTone", value: "executive" },
+      { key: "preferredChart", value: "bar" },
+      { key: "showSqlDefault", value: false },
+      { key: "showTableDefault", value: false },
+      { key: "maxRowsLimit", value: 100 },
+      { key: "timeoutSeconds", value: 180 },
+    ];
+    for (const update of updates) {
+      await prefMutation.mutateAsync(update);
+    }
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 3000);
   };
