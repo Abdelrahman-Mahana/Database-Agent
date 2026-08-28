@@ -1,7 +1,7 @@
 import pytest
 import sqlite3
 from pathlib import Path
-from app.schema_catalog.models import (
+from app.models.schema_catalog.models import (
     SchemaCatalog,
     TableProfile,
     ColumnProfile,
@@ -13,8 +13,8 @@ from app.schema_catalog.models import (
     AliasTermRecord,
     CatalogVersionRecord,
 )
-from app.schema_catalog.catalog_builder import CatalogBuilder
-from app.schema_grounding.grounding_engine import SchemaGroundingEngine
+from app.models.schema_catalog.catalog_builder import CatalogBuilder
+from app.agent.schema_grounding.grounding_engine import SchemaGroundingEngine
 
 
 def create_sample_catalog(fp="test_norm_fp") -> SchemaCatalog:
@@ -134,7 +134,7 @@ def test_schema_catalog_roundtrip_from_normalized_records():
 
 def test_catalog_builder_normalized_persistence_and_loading(tmp_path, monkeypatch):
     """Verify CatalogBuilder saves to normalized SQLite tables and reloads properly."""
-    monkeypatch.setattr("app.schema_catalog.catalog_builder.CATALOG_DIR", tmp_path)
+    monkeypatch.setattr("app.models.schema_catalog.catalog_builder.CATALOG_DIR", tmp_path)
 
     builder = CatalogBuilder()
     catalog = create_sample_catalog(fp="test_persist_fp")
@@ -167,7 +167,7 @@ def test_catalog_builder_normalized_persistence_and_loading(tmp_path, monkeypatc
 
 def test_catalog_builder_selective_table_subset_loading(tmp_path, monkeypatch):
     """Verify load_table_subset loads only requested tables in O(K) time."""
-    monkeypatch.setattr("app.schema_catalog.catalog_builder.CATALOG_DIR", tmp_path)
+    monkeypatch.setattr("app.models.schema_catalog.catalog_builder.CATALOG_DIR", tmp_path)
 
     builder = CatalogBuilder()
     catalog = create_sample_catalog(fp="test_subset_fp")
@@ -186,7 +186,7 @@ def test_two_stage_hybrid_retrieval_and_join_expansion():
     catalog = create_sample_catalog()
 
     # Stage 1: Candidate retrieval over synonym-enriched catalog
-    from app.schema_catalog.retrieval import retrieve_relevant_tables
+    from app.models.schema_catalog.retrieval import retrieve_relevant_tables
     question = "Show client names and product items"
     candidates = retrieve_relevant_tables(question, catalog, k=5)
 
@@ -194,7 +194,7 @@ def test_two_stage_hybrid_retrieval_and_join_expansion():
     assert "order_items" in candidates
 
     # Stage 2: Join path expansion through intermediate bridge tables (Steiner Tree)
-    from app.schema_grounding.relationship_graph import SchemaRelationshipGraph
+    from app.agent.schema_grounding.relationship_graph import SchemaRelationshipGraph
 
     schema_dict = {
         t: {"foreign_keys": prof.foreign_keys}

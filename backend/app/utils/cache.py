@@ -18,9 +18,9 @@ import re
 from typing import Any, Optional, Tuple
 
 from cachetools import TTLCache
-from app.config.settings import settings
-from app.database.system_store import system_store
-from app.database.redis_store import get_redis_coordinator
+from app.core.config.settings import settings
+from app.services.database.system_store import system_store
+from app.services.database.redis_store import get_redis_coordinator
 from app.utils.text_processor import normalize_question
 
 logger = logging.getLogger(__name__)
@@ -65,66 +65,115 @@ def is_volatile_query(sql: str) -> bool:
     return False
 
 
+def _build_sql_cache_key(
+    question: str,
+    schema_text: str = "",
+    database_fingerprint: str = "",
+    dialect: str = "",
+    schema_version: str = "",
+) -> str:
+    norm_q = normalize_question(question)
+    version_tag = schema_version or (_get_hash_key(schema_text) if schema_text else "")
+    raw_key = f"{database_fingerprint}:{dialect}:{version_tag}:{norm_q}"
+    return f"sql:{_get_hash_key(raw_key)}"
+
+
+def _build_results_cache_key(
+    sql: str,
+    database_fingerprint: str = "",
+    dialect: str = "",
+    data_version: str = "",
+    schema_version: str = "",
+) -> str:
+    raw_key = f"{database_fingerprint}:{dialect}:{schema_version}:{data_version}:{sql.strip()}"
+    return f"results:{_get_hash_key(raw_key)}"
+
+
 # -----------------------------------------------------------------------------
 # 1. SQL Query Cache
 # -----------------------------------------------------------------------------
 
 def get_cached_sql(
     question: str,
-    schema_text: str,
+    schema_text: str = "",
     database_fingerprint: str = "",
     dialect: str = "",
+    schema_version: str = "",
 ) -> Tuple[Optional[str], Optional[dict[str, Any]]]:
-    norm_q = normalize_question(question)
-    raw_key = f"{database_fingerprint}:{dialect}:{norm_q}:{schema_text}"
-    cache_key = f"sql:{_get_hash_key(raw_key)}"
+    cache_key = _build_sql_cache_key(
+        question=question,
+        schema_text=schema_text,
+        database_fingerprint=database_fingerprint,
+        dialect=dialect,
+        schema_version=schema_version,
+    )
+
+    def _clean_sql(entry: Any) -> tuple[Optional[str], dict]:
+        if not entry:
+            return None, None
+        sql_val = entry.get("sql") if isinstance(entry, dict) else str(entry)
+        if not sql_val or "UNANSWERABLE" in sql_val.upper() or "SELECT 'UNANSWERABLE" in sql_val.upper():
+            return None, None
+        return sql_val, (entry if isinstance(entry, dict) else {})
 
     # L1: Hot In-RAM TTLCache
     val = _sql_cache.get(cache_key)
     if val:
-        logger.info("SQL cache hit (In-Memory) for question.")
-        if isinstance(val, dict):
-            return val.get("sql"), val
-        return val, {}
+        sql, meta = _clean_sql(val)
+        if sql:
+            logger.info("SQL cache hit (In-Memory) for question.")
+            return sql, meta
+        _sql_cache.pop(cache_key, None)
 
     # L2: Cross-Worker Distributed Redis
     redis_coord = get_redis_coordinator()
     if redis_coord.is_available():
         r_val = redis_coord.get(cache_key)
         if r_val:
-            logger.info("SQL cache hit (Redis) for question.")
             try:
                 data = json.loads(r_val)
-                _sql_cache[cache_key] = data
-                if isinstance(data, dict):
-                    return data.get("sql"), data
-                return data, {}
+                sql, meta = _clean_sql(data)
+                if sql:
+                    logger.info("SQL cache hit (Redis) for question.")
+                    _sql_cache[cache_key] = data
+                    return sql, meta
             except Exception:
                 pass
 
     # L3: Durable SystemStore
     val = system_store.get_cache(cache_key)
     if val:
-        logger.info("SQL cache hit (Durable Store) for question.")
-        data = json.loads(val)
-        _sql_cache[cache_key] = data  # Write-through back to local in-memory cache
-        if isinstance(data, dict):
-            return data.get("sql"), data
-        return data, {}
+        try:
+            data = json.loads(val)
+            sql, meta = _clean_sql(data)
+            if sql:
+                logger.info("SQL cache hit (Durable Store) for question.")
+                _sql_cache[cache_key] = data
+                return sql, meta
+        except Exception:
+            pass
     return None, None
 
 
 def set_cached_sql(
     question: str,
-    schema_text: str,
-    sql: str,
+    schema_text: str = "",
+    sql: str = "",
     database_fingerprint: str = "",
     dialect: str = "",
     origin_generation_tier: str = "primary",
+    schema_version: str = "",
 ) -> None:
-    norm_q = normalize_question(question)
-    raw_key = f"{database_fingerprint}:{dialect}:{norm_q}:{schema_text}"
-    cache_key = f"sql:{_get_hash_key(raw_key)}"
+    if not sql or "UNANSWERABLE" in sql.upper() or "SELECT 'UNANSWERABLE" in sql.upper():
+        return
+
+    cache_key = _build_sql_cache_key(
+        question=question,
+        schema_text=schema_text,
+        database_fingerprint=database_fingerprint,
+        dialect=dialect,
+        schema_version=schema_version,
+    )
 
     entry = {
         "sql": sql,
@@ -147,6 +196,35 @@ def set_cached_sql(
         logger.debug("Failed to persist SQL cache: %s", e)
 
 
+def invalidate_cached_sql(
+    question: str,
+    schema_text: str = "",
+    database_fingerprint: str = "",
+    dialect: str = "",
+    schema_version: str = "",
+) -> None:
+    """Evict cached SQL query across all cache layers."""
+    cache_key = _build_sql_cache_key(
+        question=question,
+        schema_text=schema_text,
+        database_fingerprint=database_fingerprint,
+        dialect=dialect,
+        schema_version=schema_version,
+    )
+    _sql_cache.pop(cache_key, None)
+    redis_coord = get_redis_coordinator()
+    if redis_coord.is_available():
+        try:
+            redis_coord.delete(cache_key)
+        except Exception:
+            pass
+    try:
+        if hasattr(system_store, "delete_cache"):
+            system_store.delete_cache(cache_key)
+    except Exception:
+        pass
+
+
 # -----------------------------------------------------------------------------
 # 2. Query Results Cache (Bounded, Volatility-Aware, Freshness-Keyed)
 # -----------------------------------------------------------------------------
@@ -156,13 +234,19 @@ def get_cached_results(
     database_fingerprint: str = "",
     dialect: str = "",
     data_version: str = "",
+    schema_version: str = "",
 ) -> list[dict[str, Any]] | None:
     """Fetch cached query results if results caching is enabled and entry has not expired."""
     if not getattr(settings, "enable_results_cache", True):
         return None
 
-    raw_key = f"{database_fingerprint}:{dialect}:{data_version}:{sql.strip()}"
-    cache_key = f"results:{_get_hash_key(raw_key)}"
+    cache_key = _build_results_cache_key(
+        sql=sql,
+        database_fingerprint=database_fingerprint,
+        dialect=dialect,
+        data_version=data_version,
+        schema_version=schema_version,
+    )
 
     # L1: Hot RAM lookup (0ms)
     val = _results_cache.get(cache_key)
@@ -202,6 +286,7 @@ def set_cached_results(
     database_fingerprint: str = "",
     dialect: str = "",
     data_version: str = "",
+    schema_version: str = "",
 ) -> None:
     """
     Store query results in cache subject to strict row budget, payload byte budget, and volatility TTL.
@@ -235,8 +320,13 @@ def set_cached_results(
     if ttl <= 0:
         return
 
-    raw_key = f"{database_fingerprint}:{dialect}:{data_version}:{sql.strip()}"
-    cache_key = f"results:{_get_hash_key(raw_key)}"
+    cache_key = _build_results_cache_key(
+        sql=sql,
+        database_fingerprint=database_fingerprint,
+        dialect=dialect,
+        data_version=data_version,
+        schema_version=schema_version,
+    )
 
     # L1: Hot RAM write
     _results_cache[cache_key] = results
@@ -249,6 +339,8 @@ def set_cached_results(
     # L3: Durable persistence
     try:
         system_store.set_cache(cache_key, serialized, ttl)
+    except Exception as e:
+        logger.debug("Failed to persist results cache: %s", e)
     except Exception as e:
         logger.debug("Failed to persist results cache: %s", e)
 

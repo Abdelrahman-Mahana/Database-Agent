@@ -143,7 +143,7 @@ def transpile_sql_to_dialect(query: str, target_dialect: str) -> str:
 
 def get_target_dialect() -> str:
     """Determine target SQL dialect dynamically from active database engine."""
-    from app.database import db
+    from app.services.database import db
     try:
         name = db.get_engine().dialect.name.lower()
         if name in ("postgres", "postgresql"):

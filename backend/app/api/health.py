@@ -8,9 +8,9 @@ import asyncio
 
 from fastapi import APIRouter, HTTPException
 
-from app.config.settings import settings
-from app.llm.model import get_llm_client
-from app.schemas.chat import HealthResponse
+from app.core.config.settings import settings
+from app.agent.llm.model import get_llm_client
+from app.models.schemas.chat import HealthResponse
 
 router = APIRouter(tags=["health"])
 

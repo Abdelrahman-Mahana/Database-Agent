@@ -1,9 +1,9 @@
 import pytest
-from app.schema_grounding.grounding_engine import SchemaGroundingEngine
-from app.schema_grounding.schema_pruner import SchemaPruner
-from app.schema_grounding.models import Relationship
-from app.semantic.models import QueryUnderstanding
-from app.config.settings import settings
+from app.agent.schema_grounding.grounding_engine import SchemaGroundingEngine
+from app.agent.schema_grounding.schema_pruner import SchemaPruner
+from app.agent.schema_grounding.models import Relationship
+from app.agent.semantic.models import QueryUnderstanding
+from app.core.config.settings import settings
 
 
 def test_schema_pruner_join_paths_and_column_capping():
@@ -105,7 +105,7 @@ def test_schema_grounding_engine_adaptive_capacity():
 
 def test_centrality_fallback_is_not_relevance_evidence():
     """A bounded structural fallback must lower, never inflate, confidence."""
-    from app.schema_grounding.confidence import grounding_confidence
+    from app.agent.schema_grounding.confidence import grounding_confidence
 
     schema = {
         f"table_{i}": {
@@ -176,8 +176,8 @@ def test_complex_enterprise_10_table_chain_preserved():
 
 
 def test_hybrid_retrieval_lexical_first_with_semantic_fallback():
-    from app.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
-    from app.schema_catalog.retrieval import retrieve_relevant_tables
+    from app.models.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
+    from app.models.schema_catalog.retrieval import retrieve_relevant_tables
 
     catalog = SchemaCatalog(
         fingerprint="fp123",
@@ -207,7 +207,7 @@ def test_hybrid_retrieval_lexical_first_with_semantic_fallback():
 
 
 def test_optimized_steiner_tree_join_path_resolution():
-    from app.schema_grounding.relationship_graph import SchemaRelationshipGraph
+    from app.agent.schema_grounding.relationship_graph import SchemaRelationshipGraph
 
     # Complex multi-table schema: Artist -> Album -> Track -> InvoiceLine -> Invoice -> Customer
     schema = {
@@ -250,8 +250,8 @@ def test_optimized_steiner_tree_join_path_resolution():
 
 
 def test_schema_pruning_preserves_bridge_tables_and_join_keys():
-    from app.schema_grounding.grounding_engine import SchemaGroundingEngine
-    from app.semantic.models import QueryUnderstanding
+    from app.agent.schema_grounding.grounding_engine import SchemaGroundingEngine
+    from app.agent.semantic.models import QueryUnderstanding
 
     # Multi-hop schema where 'invoice_lines' is the bridge between 'tracks' and 'invoices'
     schema = {

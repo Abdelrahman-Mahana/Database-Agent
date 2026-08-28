@@ -1,8 +1,8 @@
 import pytest
-from app.sql.validator import SQLValidator
-from app.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
-from app.semantic.models import QuerySpec, FilterCondition, SortCondition, IntentType, ExecutionRoute
-from app.schema_grounding.relationship_graph import SchemaRelationshipGraph
+from app.services.sql.validator import SQLValidator
+from app.models.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
+from app.agent.semantic.models import QuerySpec, FilterCondition, SortCondition, IntentType, ExecutionRoute
+from app.agent.schema_grounding.relationship_graph import SchemaRelationshipGraph
 from app.services.sql_service import SQLExecutor
 
 

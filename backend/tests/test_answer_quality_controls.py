@@ -1,11 +1,11 @@
 import pytest
 from unittest.mock import MagicMock, AsyncMock, patch
-from app.sql.validator import SQLValidator
-from app.sql.result_verifier import ResultVerifier
-from app.semantic.models import QueryUnderstanding, ExecutionRoute, OutputFormat
+from app.services.sql.validator import SQLValidator
+from app.services.sql.result_verifier import ResultVerifier
+from app.agent.semantic.models import QueryUnderstanding, ExecutionRoute, OutputFormat
 from app.utils.text_processor import AnalysisType
-from app.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
-from app.agents.analyst_agent import AnalystAgent
+from app.models.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
+from app.agent.orchestration.analyst_agent import AnalystAgent
 
 
 def create_mock_catalog():
@@ -163,7 +163,14 @@ async def test_controls_5_6_7_confidence_decomposition_and_bilingual_policy():
     assert "database" in en_res["report"].lower()  # Database-scoped English message
 
     # 3. Test Full Pipeline Confidence Decomposition (Control 6)
-    with patch.object(agent.sql_generator, "generate_sql", new_callable=AsyncMock) as mock_gen_sql, \
+    mock_ctx = MagicMock()
+    mock_ctx.schema = {"users": {"columns": [{"name": "id", "type": "int"}]}}
+    mock_ctx.catalog = None
+    mock_ctx.total_tables = 1
+    mock_ctx.total_columns = 1
+
+    with patch.object(agent.schema_service, "get_database_context", return_value=mock_ctx), \
+         patch.object(agent.sql_generator, "generate_sql", new_callable=AsyncMock) as mock_gen_sql, \
          patch.object(agent.sql_generator, "execute_with_repair", new_callable=AsyncMock) as mock_exec, \
          patch.object(agent.report_service, "generate_report_and_chart", new_callable=AsyncMock) as mock_report:
 

@@ -1,6 +1,6 @@
 """Extract the missing table/column name a DB engine's error message names.
 
-Factored out of `app.sql.repair_engine.SQLRepairEngine.analyze_db_error`
+Factored out of `app.services.sql.repair_engine.SQLRepairEngine.analyze_db_error`
 (same regexes, same behavior) so `app.services.schema_learning` (Phase 5)
 can reuse the exact identifier the error was actually about, not just the
 fuzzy-matched suggestion list `analyze_db_error` returns. Kept dependency-free

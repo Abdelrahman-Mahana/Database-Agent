@@ -1,6 +1,6 @@
 import pytest
-from app.schema_catalog.glossary import _extract_json, build_glossary
-from app.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
+from app.models.schema_catalog.glossary import _extract_json, build_glossary
+from app.models.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
 
 
 def test_extract_json_markdown_fence():

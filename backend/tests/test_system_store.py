@@ -1,7 +1,7 @@
 import time
 import pytest
 from pathlib import Path
-from app.database.system_store import SystemStore
+from app.services.database.system_store import SystemStore
 
 
 @pytest.fixture
@@ -57,7 +57,7 @@ def test_rate_limiting(temp_store: SystemStore):
 
 
 def test_in_ram_rate_limiting_and_hot_cache_isolation():
-    from app.middleware.rate_limit import consume_rate_limit_ram, clear_ram_rate_limits
+    from app.core.middleware.rate_limit import consume_rate_limit_ram, clear_ram_rate_limits
     from app.utils.cache import get_cached_sql, set_cached_sql, _sql_cache
 
     # 1. Test fast in-RAM token bucket

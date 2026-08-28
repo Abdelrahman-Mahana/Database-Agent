@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.services.long_term_memory import long_term_memory
-from app.schemas.memory import (
+from app.models.schemas.memory import (
     SaveQueryRequest,
     SavedQueryResponse,
     SetPreferenceRequest,

@@ -11,13 +11,13 @@ import pytest
 import sqlite3
 from unittest.mock import AsyncMock, patch, MagicMock
 
-from app.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
-from app.schema_grounding.grounding_engine import SchemaGroundingEngine
-from app.semantic.query_spec_builder import QuerySpecBuilder
-from app.agents.sql_generator import SQLGenerator
-from app.sql.validator import SQLValidator
-from app.sql.result_verifier import ResultVerifier
-from app.security.cost_guard import check_query_cost
+from app.models.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
+from app.agent.schema_grounding.grounding_engine import SchemaGroundingEngine
+from app.agent.semantic.query_spec_builder import QuerySpecBuilder
+from app.agent.orchestration.sql_generator import SQLGenerator
+from app.services.sql.validator import SQLValidator
+from app.services.sql.result_verifier import ResultVerifier
+from app.core.security.cost_guard import check_query_cost
 
 
 @pytest.fixture

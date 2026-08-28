@@ -1,5 +1,5 @@
 import pytest
-from app.schema_grounding.schema_intelligence import compute_structural_schema_fingerprint, SchemaIntelligenceCache
+from app.agent.schema_grounding.schema_intelligence import compute_structural_schema_fingerprint, SchemaIntelligenceCache
 
 def test_compute_structural_schema_fingerprint_deterministic():
     schema1 = {

@@ -1,16 +1,16 @@
 import pytest
-from app.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
-from app.schema_catalog.retrieval import (
+from app.models.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
+from app.models.schema_catalog.retrieval import (
     AliasIndex,
     TfidfTableRetriever,
     HybridCandidateRetriever,
     CandidateTable,
     CandidateColumn,
 )
-from app.schema_grounding.grounding_engine import SchemaGroundingEngine
-from app.database.context import DatabaseContext
-from app.semantic.query_spec_builder import QuerySpecBuilder
-from app.semantic.models import ExecutionRoute, IntentType
+from app.agent.schema_grounding.grounding_engine import SchemaGroundingEngine
+from app.services.database.context import DatabaseContext
+from app.agent.semantic.query_spec_builder import QuerySpecBuilder
+from app.agent.semantic.models import ExecutionRoute, IntentType
 
 
 @pytest.fixture

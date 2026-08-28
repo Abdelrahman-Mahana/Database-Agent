@@ -1,8 +1,8 @@
 import pytest
 from types import SimpleNamespace
-from app.sql.result_verifier import ResultVerifier, DeterministicFact, ClaimEvaluation
+from app.services.sql.result_verifier import ResultVerifier, DeterministicFact, ClaimEvaluation
 from app.services.feedback_service import FeedbackService
-from app.database.system_store import SystemStore
+from app.services.database.system_store import SystemStore
 from app.services.report_service import ReportService
 
 
@@ -133,7 +133,7 @@ async def test_report_uses_facts_from_full_result_after_llm_truncation():
 def test_claim_feedback_recording_and_retrieval(tmp_path, monkeypatch):
     """Test recording user feedback and corrections on specific claims."""
     store = SystemStore(db_url_or_path=str(tmp_path / "claim_fb.db"))
-    monkeypatch.setattr("app.database.system_store.system_store", store)
+    monkeypatch.setattr("app.services.database.system_store.system_store", store)
 
     service = FeedbackService()
 

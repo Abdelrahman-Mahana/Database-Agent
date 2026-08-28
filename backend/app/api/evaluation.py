@@ -1,12 +1,12 @@
 """Evaluation API routes.
 
-Exposes the AI Evaluation Framework (app.evaluation) which scores every
+Exposes the AI Evaluation Framework (app.services.evaluation) which scores every
 chat request for confidence/quality and keeps a rolling in-memory
 telemetry buffer. Wired into /chat via app.api.chat.
 """
 from fastapi import APIRouter, HTTPException
 
-from app.evaluation import EvaluationTelemetry
+from app.services.evaluation import EvaluationTelemetry
 
 router = APIRouter(prefix="/evaluation", tags=["evaluation"])
 
@@ -24,7 +24,14 @@ async def get_evaluation_stats():
     """Return aggregate quality/confidence/cost stats over the buffered history."""
     history = EvaluationTelemetry.get_history()
     if not history:
-        raise HTTPException(status_code=404, detail="No evaluation data recorded yet")
+        return {
+            "sample_size": 0,
+            "avg_quality_score": 0.0,
+            "avg_confidence_score": 0.0,
+            "avg_latency_ms": 0.0,
+            "sql_success_rate_pct": 0.0,
+            "total_estimated_cost_usd": 0.0,
+        }
 
     n = len(history)
     avg_quality = round(sum(r.quality_score for r in history) / n, 2)

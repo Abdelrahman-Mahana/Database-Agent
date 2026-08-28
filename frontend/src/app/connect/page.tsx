@@ -21,9 +21,8 @@ import {
   AlertCircle, 
   Clock, 
   Server, 
-  KeyRound, 
-  Layers,
-  ArrowRight
+  ArrowRight,
+  Trash2
 } from "lucide-react";
 import { ConnectionConfigRequest, SavedProfile } from "@/types/api";
 
@@ -136,6 +135,17 @@ export default function ConnectPage() {
     onError: handleMutationError,
   });
 
+  // 3c. Delete Profile Mutation
+  const deleteProfileMutation = useMutation({
+    mutationFn: async (connectionId: string) => {
+      await apiClient.delete(`/connect/profiles/${connectionId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["saved-profiles"] });
+    },
+    onError: handleMutationError,
+  });
+
   // 4. Preset Database Mutation
   const presetConnectMutation = useMutation({
     mutationFn: async (filename: string) => {
@@ -159,7 +169,6 @@ export default function ConnectPage() {
     onSuccess: handleSuccess,
     onError: handleMutationError,
   });
-
 
   // Fetch available preset databases
   const { data: databasesData } = useQuery({
@@ -231,6 +240,7 @@ export default function ConnectPage() {
     configConnectMutation.isPending ||
     urlConnectMutation.isPending ||
     reconnectMutation.isPending ||
+    deleteProfileMutation.isPending ||
     presetConnectMutation.isPending ||
     uploadConnectMutation.isPending ||
     validateMutation.isPending;
@@ -239,9 +249,9 @@ export default function ConnectPage() {
     configConnectMutation.error ||
     urlConnectMutation.error ||
     reconnectMutation.error ||
+    deleteProfileMutation.error ||
     presetConnectMutation.error ||
     uploadConnectMutation.error;
-
 
   return (
     <div className="flex-1 flex flex-col h-full w-full max-w-full space-y-6 overflow-y-auto pr-1">
@@ -518,16 +528,28 @@ export default function ConnectPage() {
                         </div>
                         <p className="text-xs text-muted-foreground font-mono truncate">{p.masked_url}</p>
                       </div>
-                      <Button
-                        size="sm"
-                        disabled={isPending}
-                        onClick={() => reconnectMutation.mutate(p.connection_id)}
-                        className="w-full gap-1.5 text-xs"
-                      >
-                        {reconnectMutation.isPending ? "Reconnecting..." : "Reconnect"}
-                        <ArrowRight className="h-3.5 w-3.5" />
-                      </Button>
 
+                      <div className="flex items-center gap-2 pt-2 border-t border-border/30">
+                        <Button
+                          size="sm"
+                          disabled={isPending}
+                          onClick={() => reconnectMutation.mutate(p.connection_id)}
+                          className="flex-1 gap-1.5 text-xs bg-primary hover:bg-primary/90 text-primary-foreground"
+                        >
+                          {reconnectMutation.isPending ? "Reconnecting..." : "Reconnect"}
+                          <ArrowRight className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={isPending}
+                          onClick={() => deleteProfileMutation.mutate(p.connection_id)}
+                          className="h-8 px-2.5 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          title="Delete Profile"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>

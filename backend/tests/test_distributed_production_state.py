@@ -7,9 +7,9 @@ from app.utils.cache import (
     set_cached_results,
     clear_all_caches,
 )
-from app.database.redis_store import RedisCoordinator, reset_redis_coordinator
-from app.database.system_store import SystemStore
-from app.jobs.durable_queue import DurableJobQueue
+from app.services.database.redis_store import RedisCoordinator, reset_redis_coordinator
+from app.services.database.system_store import SystemStore
+from app.services.jobs.durable_queue import DurableJobQueue
 
 
 class MockRedisClient:

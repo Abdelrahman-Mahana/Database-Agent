@@ -11,7 +11,7 @@ from dataclasses import dataclass, field, asdict
 from typing import Any
 import structlog
 
-from app.database.system_store import system_store
+from app.services.database.system_store import system_store
 
 logger = structlog.get_logger(__name__)
 

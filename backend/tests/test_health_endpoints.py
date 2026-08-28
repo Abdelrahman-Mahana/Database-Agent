@@ -3,7 +3,7 @@ import asyncio
 from fastapi import HTTPException
 
 from app.api import health
-from app.config.settings import settings
+from app.core.config.settings import settings
 
 
 def test_health_is_local_and_does_not_construct_an_llm_client(monkeypatch):

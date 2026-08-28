@@ -1,6 +1,9 @@
 """Schema reading and SQL execution services."""
 import hashlib
+import json
 import os
+import re
+import sys
 import threading
 import time
 from typing import Any, Dict, Optional, Tuple
@@ -10,11 +13,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from loguru import logger
 
-from app.config.settings import settings
-from app.database import db
-from app.database.system_store import system_store
-from app.database.context import DatabaseContext, db_context_manager, compute_db_fingerprint
-import json
+from app.core.config.settings import settings
+from app.services.database import db
+from app.services.database.system_store import system_store
+from app.services.database.context import DatabaseContext, db_context_manager, compute_db_fingerprint
 
 
 class SchemaCacheEntry:
@@ -66,26 +68,10 @@ class SchemaCacheEntry:
         )
 
 
-def is_safe_semantic_sample_column(col_name: str) -> bool:
-    """Checks if a column is safe for value profiling (avoids PII/secrets/free-form text)."""
-    name = col_name.lower()
-    deny_keywords = (
-        "password", "passwd", "pwd", "ssn", "secret", "token", "key",
-        "card", "cvv", "auth", "credential", "private", "iban", "swift",
-        "email", "phone", "mobile", "address", "street", "zip",
-        "note", "comment", "body", "description", "content", "payload",
-        "blob", "json", "xml", "html", "hash", "salt", "signature"
-    )
-    if any(k in name for k in deny_keywords):
-        return False
-    
-    allow_keywords = (
-        "status", "type", "kind", "category", "gender", "tier",
-        "country", "state", "city", "region", "currency", "code",
-        "priority", "segment", "department", "role", "plan", "flag",
-        "mode", "source", "medium", "channel", "brand", "level"
-    )
-    return any(k in name for k in allow_keywords) or len(name) <= 15
+from app.core.security.privacy_policy import (
+    is_safe_semantic_sample_column,
+    PIIValueSanitizer,
+)
 
 
 class SchemaService:
@@ -134,6 +120,16 @@ class SchemaService:
         except Exception:
             pass
         return ""
+
+    def get_semantic_schema_version(self) -> str:
+        """Return the deterministic semantic and schema version hash."""
+        try:
+            ctx = self.get_database_context()
+            if ctx:
+                return ctx.get_semantic_version()
+        except Exception:
+            pass
+        return self._get_db_fingerprint()
 
     def _populate_context_from_entry(self, entry: SchemaCacheEntry, fingerprint: str) -> DatabaseContext:
         """Populate or update the in-RAM DatabaseContext from a SchemaCacheEntry."""
@@ -395,7 +391,7 @@ class SchemaService:
         If db_url is provided, invalidates entries matching that URL.
         Otherwise, clears all cached schemas.
         """
-        from app.schema_grounding.schema_intelligence import SchemaIntelligenceCache
+        from app.agent.schema_grounding.schema_intelligence import SchemaIntelligenceCache
         
         if db_url:
             target_hash = compute_db_fingerprint(db_url)
@@ -424,7 +420,7 @@ class SchemaService:
 
         # Check if persistent CatalogBuilder disk profile exists for instant warm start
         try:
-            from app.schema_catalog.catalog_builder import CatalogBuilder
+            from app.models.schema_catalog.catalog_builder import CatalogBuilder
             catalog_builder = CatalogBuilder(schema_service=self)
             cached_catalog = catalog_builder._load_from_store(fingerprint)
             if cached_catalog is not None and cached_catalog.tables:
@@ -494,8 +490,11 @@ class SchemaService:
                 col_str = f"  - {col['name']} ({col['type']})"
                 if not col["nullable"]:
                     col_str += " NOT NULL"
-                if col.get("samples"):
-                    col_str += f" -- Sample values: {', '.join(repr(s) for s in col['samples'])}"
+                allow_samples = getattr(settings, "enable_schema_samples", True) and not getattr(settings, "strict_privacy_mode", False)
+                if allow_samples and col.get("samples") and is_safe_semantic_sample_column(col["name"]):
+                    clean_s = PIIValueSanitizer.sanitize_samples(col["samples"])
+                    if clean_s:
+                        col_str += f" -- Sample values: {', '.join(repr(s) for s in clean_s)}"
                 if col.get("date_range"):
                     col_str += f" -- Data range: {col['date_range']}"
                 lines.append(col_str)
@@ -619,7 +618,9 @@ class SchemaService:
             return None
 
     def _sample_column_values(self, table_name: str, col_name: str, col_type: Any, schema_name: Optional[str] = None) -> list[str]:
-        """Fetch up to 3 distinct sample values for a safe semantic text column."""
+        """Fetch up to 3 distinct sample values for a safe semantic categorical column."""
+        if not getattr(settings, "enable_schema_samples", True) or getattr(settings, "strict_privacy_mode", False):
+            return []
         if not is_safe_semantic_sample_column(col_name):
             return []
         if not any(t in str(col_type).upper() for t in ("CHAR", "TEXT", "VARCHAR", "STRING")):
@@ -649,7 +650,9 @@ class SchemaService:
                 if row[0] is not None and 0 < len(str(row[0]).strip()) <= 40
             ]
             distinct_vals = list(dict.fromkeys(candidates_in_order))
-            return distinct_vals[:3]
+            max_samples = getattr(settings, "sample_max_distinct_values", 3)
+            max_len = getattr(settings, "sample_max_char_length", 25)
+            return PIIValueSanitizer.sanitize_samples(distinct_vals, max_samples=max_samples, max_len=max_len)
         except Exception:
             return []
 
@@ -661,7 +664,11 @@ class SchemaService:
         schema_name: Optional[str] = None,
     ) -> dict[str, dict[str, Any]]:
         """Batched single-query profiling: collect date ranges AND safe text samples in one round-trip."""
-        text_cols = [c for c in text_cols if is_safe_semantic_sample_column(c)]
+        if not getattr(settings, "enable_schema_samples", True) or getattr(settings, "strict_privacy_mode", False):
+            text_cols = []
+        else:
+            text_cols = [c for c in text_cols if is_safe_semantic_sample_column(c)]
+
         if not date_cols and not text_cols:
             return {}
 
@@ -725,6 +732,8 @@ class SchemaService:
                     rows = conn.execute(text(sample_query)).fetchall()
 
                 # Extract distinct samples per column from the batched result
+                max_samples = getattr(settings, "sample_max_distinct_values", 3)
+                max_len = getattr(settings, "sample_max_char_length", 25)
                 for col_idx, tc in enumerate(text_cols):
                     candidates = [
                         str(row[col_idx]).strip()
@@ -732,7 +741,7 @@ class SchemaService:
                         if row[col_idx] is not None and 0 < len(str(row[col_idx]).strip()) <= 40
                     ]
                     distinct_vals = list(dict.fromkeys(candidates))
-                    result[tc]["samples"] = distinct_vals[:3]
+                    result[tc]["samples"] = PIIValueSanitizer.sanitize_samples(distinct_vals, max_samples=max_samples, max_len=max_len)
 
             return result
 
@@ -751,7 +760,7 @@ class SchemaService:
             priority_budget: Controls how many text/date columns to sample.
                 High-priority tables (FK hubs) get a larger budget.
         """
-        from app.schema_catalog.catalog_builder import CatalogBuilder
+        from app.models.schema_catalog.catalog_builder import CatalogBuilder
         
         builder = CatalogBuilder(self)
         fqn = f"{schema_name}.{table_name}" if schema_name and schema_name != "public" else table_name
@@ -1158,8 +1167,11 @@ class SchemaService:
                     col_str += " NOT NULL"
                 if col["default"]:
                     col_str += f" DEFAULT {col['default']}"
-                if col.get("samples"):
-                    col_str += f" -- Sample values: {', '.join(repr(s) for s in col['samples'])}"
+                allow_samples = getattr(settings, "enable_schema_samples", True) and not getattr(settings, "strict_privacy_mode", False)
+                if allow_samples and col.get("samples") and is_safe_semantic_sample_column(col["name"]):
+                    clean_s = PIIValueSanitizer.sanitize_samples(col["samples"])
+                    if clean_s:
+                        col_str += f" -- Sample values: {', '.join(repr(s) for s in clean_s)}"
                 if col.get("date_range"):
                     col_str += f" -- Data range: {col['date_range']}"
                 lines.append(col_str)
@@ -1422,7 +1434,6 @@ class SchemaService:
 
         return schema, schema_text, explorer_data
 
-    # Backward-compatibility property accessors for static _cached_schema and _cached_schema_text
     @property
     def _cached_schema(self) -> Optional[dict[str, Any]]:
         entry = self._get_valid_entry()
@@ -1504,7 +1515,7 @@ class SQLExecutor:
         import sys
         import time
         from loguru import logger
-        from app.config.settings import settings
+        from app.core.config.settings import settings
 
         start_time = time.time()
         timeout_sec = getattr(settings, "cost_guard_timeout_seconds", 15)
@@ -1597,6 +1608,42 @@ class SQLExecutor:
             return rows
         except SQLAlchemyError as e:
             duration_ms = (time.time() - start_time) * 1000
+            err_str = str(e)
+            
+            # Auto-healing for PostgreSQL unquoted case-sensitive table/column names
+            if any(x in err_str.lower() for x in ("does not exist", "undefinedtable", "undefined_table", "undefinedcolumn", "undefined_column")):
+                try:
+                    db.rollback()
+                    from app.services.database import db as global_db
+                    engine = None
+                    if hasattr(db, "get_bind"):
+                        try:
+                            engine = db.get_bind()
+                        except Exception:
+                            pass
+                    if engine is None:
+                        engine = global_db.get_engine()
+                    dialect_name = getattr(getattr(engine, "dialect", None), "name", "").lower()
+                    
+                    if dialect_name in ("postgresql", "postgres"):
+                        schema_tables = SchemaService().get_schema()
+                        fixed_query = query
+                        for full_tname in schema_tables.keys():
+                            t_short = full_tname.split(".")[-1]
+                            if any(c.isupper() for c in t_short):
+                                # Replace unquoted table names like public.dose or dose with public."Dose" or "Dose"
+                                pattern = r'(?<!")\b(?:public\.)?' + re.escape(t_short) + r'\b(?!")'
+                                fixed_query = re.sub(pattern, f'public."{t_short}"', fixed_query, flags=re.IGNORECASE)
+                        if fixed_query != query:
+                            logger.info(f"Auto-healed unquoted PostgreSQL identifiers in query: {fixed_query}")
+                            res = db.execute(text(fixed_query))
+                            fetched = res.mappings().fetchmany(row_limit + 1)
+                            if len(fetched) > row_limit:
+                                fetched = fetched[:row_limit]
+                            return [dict(r) for r in fetched]
+                except Exception as heal_err:
+                    logger.debug(f"Identifier auto-healing skipped: {heal_err}")
+
             logger.bind(
                 metric="sql_execution",
                 duration_ms=duration_ms,
@@ -1619,3 +1666,8 @@ class SQLExecutor:
                     # This should be loud: a failed restore risks contaminating a
                     # pooled connection's state for a future request.
                     logger.error("Failed to restore SQLite query_only state: %s", restore_err)
+
+
+# Alias for consistent naming
+SqlExecutor = SQLExecutor
+

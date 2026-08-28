@@ -2,8 +2,8 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from app.services.sql_service import SQLExecutor
-from app.security.cost_guard import check_query_cost, _detect_cartesian_product
-from app.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
+from app.core.security.cost_guard import check_query_cost, _detect_cartesian_product
+from app.models.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
 
 
 @pytest.fixture
@@ -32,7 +32,7 @@ def test_sql_executor_row_limit_truncation(sqlite_db_session):
 
 def test_sql_executor_byte_limit_truncation(sqlite_db_session, monkeypatch):
     """Test SQLExecutor.execute safely truncates results exceeding cost_guard_max_returned_bytes."""
-    from app.config.settings import settings
+    from app.core.config.settings import settings
     # Set tight byte limit (e.g. 500 bytes)
     monkeypatch.setattr(settings, "cost_guard_max_returned_bytes", 500)
 

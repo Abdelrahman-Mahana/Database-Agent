@@ -6,7 +6,7 @@ from app.utils.cache import (
     clear_all_caches,
     is_volatile_query,
 )
-from app.config.settings import settings
+from app.core.config.settings import settings
 
 
 @pytest.fixture(autouse=True)

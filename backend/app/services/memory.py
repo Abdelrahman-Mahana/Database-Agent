@@ -1,7 +1,7 @@
 import time
 from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
-from app.config.settings import settings
+from app.core.config.settings import settings
 
 
 class ConversationTurn(BaseModel):

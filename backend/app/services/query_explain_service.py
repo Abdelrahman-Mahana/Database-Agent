@@ -10,9 +10,9 @@ from sqlglot import exp
 from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 
-from app.sql.validator import sql_validator
-from app.security.cost_guard import check_query_cost
-from app.schema_catalog.models import SchemaCatalog
+from app.services.sql.validator import sql_validator
+from app.core.security.cost_guard import check_query_cost
+from app.models.schema_catalog.models import SchemaCatalog
 
 
 class QueryExplainService:

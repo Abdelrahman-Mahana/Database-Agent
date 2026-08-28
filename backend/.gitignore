@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Local environment / secrets
+.env
+.env.*
+
+# Runtime logs
+*.log
+
+# Local runtime state (keep templates/samples in source control explicitly)
+data/system_store.db
+data/schema_catalog/*.db
+data/connection_profiles.json

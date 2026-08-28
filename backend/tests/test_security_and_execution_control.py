@@ -1,7 +1,7 @@
 import pytest
 from app.utils.validator import validate_sql
 from app.services.sql_service import is_safe_semantic_sample_column
-from app.security.data_masking import mask_sensitive_columns
+from app.core.security.data_masking import mask_sensitive_columns
 
 
 def test_validator_rejects_multi_statements():

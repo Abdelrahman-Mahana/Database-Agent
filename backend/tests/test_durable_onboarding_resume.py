@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from app.jobs.durable_queue import DurableJobQueue
+from app.services.jobs.durable_queue import DurableJobQueue
 
 
 class _Store:
@@ -43,9 +43,9 @@ async def test_cancelled_onboarding_job_is_queued_for_resume(monkeypatch):
         def get_or_build(self):
             raise asyncio.CancelledError
 
-    monkeypatch.setattr("app.jobs.durable_queue.get_redis_coordinator", lambda: _Redis())
-    monkeypatch.setattr("app.jobs.durable_queue.set_build_progress", lambda *_args: None)
-    monkeypatch.setattr("app.jobs.durable_queue.CatalogBuilder", _CancelledCatalogBuilder)
+    monkeypatch.setattr("app.services.jobs.durable_queue.get_redis_coordinator", lambda: _Redis())
+    monkeypatch.setattr("app.services.jobs.durable_queue.set_build_progress", lambda *_args: None)
+    monkeypatch.setattr("app.services.jobs.durable_queue.CatalogBuilder", _CancelledCatalogBuilder)
 
     with pytest.raises(asyncio.CancelledError):
         await queue.run_onboarding_job("job-1")

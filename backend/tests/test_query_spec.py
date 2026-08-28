@@ -1,10 +1,13 @@
 import pytest
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
-from app.semantic.query_spec_builder import QuerySpecBuilder
-from app.semantic.models import IntentType, AnalysisType, OutputFormat, ExecutionRoute, QueryUnderstanding
-from app.config.settings import settings
-from app.agents.analyst_agent import AnalystAgent
+from app.agent.semantic.query_spec_builder import QuerySpecBuilder
+from app.agent.semantic.models import (
+    IntentType, AnalysisType, OutputFormat, ExecutionRoute, QueryUnderstanding,
+    AnalysisLevel, AnalysisOperation, infer_analysis_profile,
+)
+from app.core.config.settings import settings
+from app.agent.orchestration.analyst_agent import AnalystAgent
 
 
 class _MockDatabaseContext:
@@ -339,7 +342,7 @@ async def test_analyst_agent_asks_for_clarification_before_pipeline():
     fake_memory = MagicMock()
     fake_memory.get_history_text.return_value = ""
 
-    with patch("app.agents.analyst_agent.memory_manager.get_memory", return_value=fake_memory), \
+    with patch("app.agent.orchestration.analyst_agent.memory_manager.get_memory", return_value=fake_memory), \
          patch.object(settings, "use_langgraph_orchestrator", False):
         result = await AnalystAgent.ask(agent, question="total", db=None, session_id="s1")
 
@@ -349,3 +352,157 @@ async def test_analyst_agent_asks_for_clarification_before_pipeline():
     assert result["suggestions"] == ["orders", "payments"]
     agent._run_service_pipeline.assert_not_awaited()
     agent._run_graph_pipeline.assert_not_awaited()
+
+
+def test_query_spec_analysis_profile_retrieval():
+    builder = QuerySpecBuilder()
+    spec = builder.build_spec("هات بيانات أحمد")
+    assert spec.analysis_required is False
+    assert spec.analysis_level == AnalysisLevel.RETRIEVAL
+    assert spec.operations == []
+
+
+def test_query_spec_analysis_profile_insight():
+    builder = QuerySpecBuilder()
+    spec = builder.build_spec("حلل أداء أحمد")
+    assert spec.analysis_required is True
+    assert spec.analysis_level == AnalysisLevel.INSIGHT
+    assert AnalysisOperation.SEGMENT in spec.operations
+    assert spec.analysis_goal is not None
+
+
+def test_query_spec_advanced_analytical_concepts():
+    builder = QuerySpecBuilder()
+
+    # Metric / count
+    spec_metric = builder.build_spec("كام عدد العملاء؟")
+    assert spec_metric.analysis_required is False
+    assert spec_metric.analysis_level == AnalysisLevel.METRIC
+    assert AnalysisOperation.AGGREGATE in spec_metric.operations
+
+    # Comparative analysis
+    spec_compare = builder.build_spec("قارن المبيعات بين 2024 و2025")
+    assert spec_compare.analysis_required is True
+    assert spec_compare.analysis_level == AnalysisLevel.INSIGHT
+    assert AnalysisOperation.COMPARE in spec_compare.operations
+    assert "2024 vs 2025" in spec_compare.comparisons
+
+    # Root cause analysis
+    spec_rc = builder.build_spec("ليه المبيعات انخفضت؟")
+    assert spec_rc.analysis_required is True
+    assert spec_rc.analysis_level == AnalysisLevel.INSIGHT
+    assert AnalysisOperation.ROOT_CAUSE in spec_rc.operations
+
+    # Anomaly detection
+    spec_anom = builder.build_spec("هل فيه قيم شاذة في الأسعار؟")
+    assert spec_anom.analysis_required is True
+    assert spec_anom.analysis_level == AnalysisLevel.INSIGHT
+    assert AnalysisOperation.ANOMALY in spec_anom.operations
+    assert "z_score_outlier_detection" in spec_anom.statistical_methods
+
+    # Forecasting
+    spec_fc = builder.build_spec("توقع المبيعات الشهر القادم")
+    assert spec_fc.analysis_required is True
+    assert spec_fc.analysis_level == AnalysisLevel.INSIGHT
+    assert AnalysisOperation.FORECAST in spec_fc.operations
+
+
+@pytest.mark.asyncio
+async def test_llm_query_understander_rich_reasoning_structure():
+    mock_response = MagicMock()
+    mock_response.content = """{
+      "route": "data_query",
+      "analysis_required": true,
+      "analysis_level": "insight",
+      "analysis_type": "exploratory_analysis",
+      "analysis_goal": "Identify major sales trends and performance issues",
+      "operations": [
+        "aggregate",
+        "trend",
+        "comparison",
+        "anomaly_detection"
+      ],
+      "entities": ["Invoice"],
+      "metrics": ["Invoice.total"],
+      "dimensions": ["Invoice.invoice_date"],
+      "aggregations": ["SUM"],
+      "comparisons": ["2024 vs 2025"],
+      "statistical_methods": ["z_score_outlier_detection"],
+      "expected_findings": ["sales drop magnitude"],
+      "constraints": ["no demographic data"],
+      "requires_multi_step": true,
+      "confidence": 0.95
+    }"""
+
+    from app.agent.semantic.llm_understanding import LLMQueryUnderstander
+    understander = LLMQueryUnderstander(fast_llm=MagicMock())
+    understander.chain = MagicMock()
+    understander.chain.ainvoke = AsyncMock(return_value=mock_response)
+
+    spec = await understander.understand(
+        question="حلل أداء المبيعات وحدد المشاكل",
+        schema={"Invoice": {"columns": [{"name": "total", "type": "float"}, {"name": "invoice_date", "type": "date"}]}}
+    )
+
+    assert spec is not None
+    assert spec.route == ExecutionRoute.DATA_QUERY
+    assert spec.analysis_required is True
+    assert spec.analysis_level == AnalysisLevel.INSIGHT
+    assert spec.analysis_type == AnalysisType.EXPLORATORY_ANALYSIS
+    assert spec.analysis_goal == "Identify major sales trends and performance issues"
+    assert AnalysisOperation.AGGREGATE in spec.operations
+    assert AnalysisOperation.TREND in spec.operations
+    assert AnalysisOperation.COMPARE in spec.operations
+    assert AnalysisOperation.ANOMALY in spec.operations
+    assert spec.metrics == ["Invoice.total"]
+    assert spec.dimensions == ["Invoice.invoice_date"]
+    assert spec.requires_multi_step is True
+    assert "2024 vs 2025" in spec.comparisons
+    assert "z_score_outlier_detection" in spec.statistical_methods
+
+
+@pytest.mark.asyncio
+async def test_query_spec_builder_async_with_llm_understanding():
+    mock_response = MagicMock()
+    mock_response.content = """{
+      "route": "data_query",
+      "analysis_required": true,
+      "analysis_level": "insight",
+      "analysis_type": "exploratory_analysis",
+      "analysis_goal": "Identify major sales trends and performance issues",
+      "operations": [
+        "aggregate",
+        "trend",
+        "comparison",
+        "anomaly_detection"
+      ],
+      "entities": ["Invoice"],
+      "metrics": ["Invoice.total"],
+      "dimensions": ["Invoice.invoice_date"],
+      "aggregations": ["SUM"],
+      "comparisons": ["2024 vs 2025"],
+      "statistical_methods": ["z_score_outlier_detection"],
+      "expected_findings": ["sales drop magnitude"],
+      "constraints": ["no demographic data"],
+      "requires_multi_step": true,
+      "confidence": 0.95
+    }"""
+
+    from app.agent.semantic.llm_understanding import LLMQueryUnderstander
+    understander = LLMQueryUnderstander(fast_llm=MagicMock())
+    understander.chain = MagicMock()
+    understander.chain.ainvoke = AsyncMock(return_value=mock_response)
+
+    builder = QuerySpecBuilder(llm_understander=understander)
+    with patch.object(settings, "use_llm_understanding", True):
+        spec = await builder.build_spec_async("حلل أداء المبيعات وحدد المشاكل")
+
+    assert spec.analysis_required is True
+    assert spec.analysis_level == AnalysisLevel.INSIGHT
+    assert spec.analysis_type == AnalysisType.EXPLORATORY_ANALYSIS
+    assert spec.analysis_goal == "Identify major sales trends and performance issues"
+    assert AnalysisOperation.TREND in spec.operations
+    assert AnalysisOperation.ANOMALY in spec.operations
+    assert spec.requires_multi_step is True
+
+

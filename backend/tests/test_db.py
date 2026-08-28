@@ -1,5 +1,5 @@
 import pytest
-from app.database.db import set_database_url, get_engine, current_session_id
+from app.services.database.db import set_database_url, get_engine, current_session_id
 
 def test_engine_caching_per_session():
     """Ensure engine caching respects different sessions (Multi-Tenant)."""
@@ -24,3 +24,15 @@ def test_engine_caching_per_session():
     current_session_id.reset(token2)
     current_session_id.set("tenant_1")
     assert get_engine() is engine1
+
+
+def test_seed_all_readiness():
+    """Verify seed_all successfully inspects the packaged Chinook database without error."""
+    from app.services.database.seed import seed_all
+    seed_all()
+
+
+def test_reset_db_script():
+    """Verify reset_db script executes properly."""
+    from scripts.reset_db import reset
+    reset()

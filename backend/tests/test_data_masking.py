@@ -1,5 +1,5 @@
 import pytest
-from app.security.data_masking import mask_sensitive_columns, MASK_VALUE
+from app.core.security.data_masking import mask_sensitive_columns, MASK_VALUE
 
 def test_mask_sensitive_columns():
     rows = [

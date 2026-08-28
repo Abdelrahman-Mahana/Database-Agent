@@ -1,8 +1,8 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.agents.sql_generator import SQLGenerator
-from app.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
+from app.agent.orchestration.sql_generator import SQLGenerator
+from app.models.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
 from app.utils.text_processor import normalize_sql
 
 
@@ -51,12 +51,12 @@ async def test_self_consistency_excludes_invalid_identifier_candidates(test_cata
     mock_db_ctx.catalog = test_catalog
 
     with patch.object(generator.schema_service, "_get_db_fingerprint", return_value="fp"), \
-         patch("app.agents.sql_generator.get_cached_sql", return_value=(None, None)), \
-         patch("app.agents.sql_generator.set_cached_sql"), \
+         patch("app.agent.orchestration.sql_generator.get_cached_sql", return_value=(None, None)), \
+         patch("app.agent.orchestration.sql_generator.set_cached_sql"), \
          patch.object(generator.schema_service, "get_database_context", return_value=mock_db_ctx), \
          patch.object(generator.validator, "validate_execution", return_value=(True, None)), \
          patch.object(generator, "last_generation_meta", create=True), \
-         patch("app.agents.sql_generator.settings") as mock_settings:
+         patch("app.agent.orchestration.sql_generator.settings") as mock_settings:
 
         mock_settings.enable_self_consistency = True
         mock_settings.sql_candidates = 2
@@ -131,12 +131,12 @@ async def test_self_consistency_excludes_invalid_join_candidates(test_catalog):
     mock_db_ctx.catalog = orders_catalog
 
     with patch.object(generator.schema_service, "_get_db_fingerprint", return_value="fp"), \
-         patch("app.agents.sql_generator.get_cached_sql", return_value=(None, None)), \
-         patch("app.agents.sql_generator.set_cached_sql"), \
+         patch("app.agent.orchestration.sql_generator.get_cached_sql", return_value=(None, None)), \
+         patch("app.agent.orchestration.sql_generator.set_cached_sql"), \
          patch.object(generator.schema_service, "get_database_context", return_value=mock_db_ctx), \
          patch.object(generator.validator, "validate_execution", return_value=(True, None)), \
          patch.object(generator, "last_generation_meta", create=True), \
-         patch("app.agents.sql_generator.settings") as mock_settings:
+         patch("app.agent.orchestration.sql_generator.settings") as mock_settings:
 
         mock_settings.enable_self_consistency = True
         mock_settings.sql_candidates = 2

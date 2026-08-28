@@ -12,7 +12,15 @@ class AnalysisType(str, Enum):
     RANKING = "ranking"
     COMPARISON = "comparison"
     TREND = "trend"
+    DISTRIBUTION = "distribution"
+    CORRELATION = "correlation"
+    ANOMALY_DETECTION = "anomaly_detection"
+    SEGMENTATION = "segmentation"
     ROOT_CAUSE = "root_cause"
+    FORECASTING = "forecasting"
+    STATISTICAL_TEST = "statistical_test"
+    DATA_QUALITY = "data_quality"
+    EXPLORATORY_ANALYSIS = "exploratory_analysis"
     MULTI_STEP = "multi_step"
     UNKNOWN = "unknown"
 
@@ -22,6 +30,14 @@ COMPLEX_ANALYSIS_TYPES = {
     AnalysisType.TREND,
     AnalysisType.ROOT_CAUSE,
     AnalysisType.MULTI_STEP,
+    AnalysisType.CORRELATION,
+    AnalysisType.ANOMALY_DETECTION,
+    AnalysisType.FORECASTING,
+    AnalysisType.STATISTICAL_TEST,
+    AnalysisType.EXPLORATORY_ANALYSIS,
+    AnalysisType.SEGMENTATION,
+    AnalysisType.DISTRIBUTION,
+    AnalysisType.DATA_QUALITY,
 }
 
 
@@ -140,7 +156,10 @@ def normalize_sql(s: str) -> str:
 def classify_analysis_type(question: str) -> AnalysisType:
     """
     Deterministic rule-based classification of query analysis type.
-    Categorizes questions into LOOKUP, COUNT, AGGREGATION, RANKING, COMPARISON, TREND, ROOT_CAUSE, MULTI_STEP, or UNKNOWN.
+    Categorizes questions into distinct analytical purposes:
+    LOOKUP, COUNT, AGGREGATION, RANKING, COMPARISON, TREND, DISTRIBUTION,
+    CORRELATION, ANOMALY_DETECTION, SEGMENTATION, ROOT_CAUSE, FORECASTING,
+    STATISTICAL_TEST, DATA_QUALITY, EXPLORATORY_ANALYSIS, MULTI_STEP, or UNKNOWN.
     """
     if not question or not question.strip():
         return AnalysisType.UNKNOWN
@@ -148,7 +167,7 @@ def classify_analysis_type(question: str) -> AnalysisType:
     q = question.lower().strip()
 
     # 1. Multiple distinct questions or sequential execution -> MULTI_STEP
-    if q.count("?") >= 2:
+    if (q.count("?") + q.count("؟")) >= 2:
         return AnalysisType.MULTI_STEP
 
     sequence_indicators = [
@@ -183,6 +202,7 @@ def classify_analysis_type(question: str) -> AnalysisType:
         r"\bwhy are\b",
         r"\bلماذا\b",
         r"\bسبب\b",
+        r"\bأسباب\b",
         r"\bتأثير\b",
         r"\bليه\b",
         r"\bاشرح لي\b",
@@ -191,7 +211,65 @@ def classify_analysis_type(question: str) -> AnalysisType:
         if re.search(pattern, q):
             return AnalysisType.ROOT_CAUSE
 
-    # 3. Comparative indicators -> COMPARISON
+    # 3. Anomaly detection & outlier indicators -> ANOMALY_DETECTION
+    anomaly_indicators = [
+        r"\banomaly\b",
+        r"\banomalies\b",
+        r"\boutlier\b",
+        r"\boutliers\b",
+        r"\babnormal\b",
+        r"\bunusual\b",
+        r"\bقيم شاذة\b",
+        r"\bشاذة\b",
+        r"\bشواذ\b",
+        r"\bشذوذ\b",
+        r"\bانحراف\b",
+        r"\bغير طبيعي\b",
+        r"\bغير معتاد\b",
+    ]
+    for pattern in anomaly_indicators:
+        if re.search(pattern, q):
+            return AnalysisType.ANOMALY_DETECTION
+
+    # 4. Correlation & relationship indicators -> CORRELATION
+    correlation_indicators = [
+        r"\bcorrelation\b",
+        r"\bcorrelate\b",
+        r"\brelationship between\b",
+        r"\bassociated with\b",
+        r"\bعلاقة بين\b",
+        r"\bارتباط بين\b",
+        r"\bعلاقة\b",
+        r"\bارتباط\b",
+        r"\bتأثير متبادل\b",
+    ]
+    for pattern in correlation_indicators:
+        if re.search(pattern, q):
+            return AnalysisType.CORRELATION
+
+    # 5. Forecasting & predictive indicators -> FORECASTING
+    forecasting_indicators = [
+        r"\bforecast\b",
+        r"\bforecasting\b",
+        r"\bpredict\b",
+        r"\bprediction\b",
+        r"\bprojected\b",
+        r"\bprojection\b",
+        r"\bnext month\b",
+        r"\bnext year\b",
+        r"\bnext quarter\b",
+        r"\bfuture\b",
+        r"\bتوقع\b",
+        r"\bتنبؤ\b",
+        r"\bالشهر القادم\b",
+        r"\bالسنة القادمة\b",
+        r"\bالمستقبل\b",
+    ]
+    for pattern in forecasting_indicators:
+        if re.search(pattern, q):
+            return AnalysisType.FORECASTING
+
+    # 6. Comparative indicators -> COMPARISON
     comparative_indicators = [
         r"\bcompare\b",
         r"\bcomparison\b",
@@ -210,45 +288,145 @@ def classify_analysis_type(question: str) -> AnalysisType:
         if re.search(pattern, q):
             return AnalysisType.COMPARISON
 
-    # 4. Temporal trend & correlation indicators -> TREND
+    # 7. Data quality & missing/null/duplicate checks -> DATA_QUALITY
+    data_quality_indicators = [
+        r"\bdata quality\b",
+        r"\bmissing values\b",
+        r"\bnull values\b",
+        r"\bnulls\b",
+        r"\bduplicates\b",
+        r"\bduplicate records\b",
+        r"\binconsistency\b",
+        r"\bجودة البيانات\b",
+        r"\bقيم فارغة\b",
+        r"\bقيم مفقودة\b",
+        r"\bسجلات مكررة\b",
+        r"\bتكرار\b",
+        r"\bفارغ\b",
+    ]
+    for pattern in data_quality_indicators:
+        if re.search(pattern, q):
+            return AnalysisType.DATA_QUALITY
+
+    # 8. Statistical tests & hypothesis validation -> STATISTICAL_TEST
+    statistical_indicators = [
+        r"\bstatistical test\b",
+        r"\bhypothesis\b",
+        r"\bt-test\b",
+        r"\bchi-square\b",
+        r"\bp-value\b",
+        r"\bvariance\b",
+        r"\bstandard deviation\b",
+        r"\bstddev\b",
+        r"\bانحراف معياري\b",
+        r"\bتباين\b",
+        r"\bاختبار إحصائي\b",
+        r"\bدلالة إحصائية\b",
+        r"\bفرضية\b",
+    ]
+    for pattern in statistical_indicators:
+        if re.search(pattern, q):
+            return AnalysisType.STATISTICAL_TEST
+
+    # 9. Segmentation & cohort clustering -> SEGMENTATION
+    segmentation_indicators = [
+        r"\bsegment\b",
+        r"\bsegments\b",
+        r"\bsegmentation\b",
+        r"\bcohort\b",
+        r"\bcohorts\b",
+        r"\bcluster\b",
+        r"\bclusters\b",
+        r"\brfm\b",
+        r"\bشرائح\b",
+        r"\bشريحة\b",
+        r"\bتقسيم العملاء\b",
+        r"\bتصنيف العملاء\b",
+        r"\bفئات العملاء\b",
+    ]
+    for pattern in segmentation_indicators:
+        if re.search(pattern, q):
+            return AnalysisType.SEGMENTATION
+
+    # 10. Distribution & category spread -> DISTRIBUTION
+    distribution_indicators = [
+        r"\bdistribution\b",
+        r"\bdistributed\b",
+        r"\bspread\b",
+        r"\bhistogram\b",
+        r"\bbreakdown by\b",
+        r"\bتوزيع\b",
+        r"\bتوزيع العملاء\b",
+        r"\bتوزيع المبيعات\b",
+        r"\bانتشار\b",
+    ]
+    for pattern in distribution_indicators:
+        if re.search(pattern, q):
+            return AnalysisType.DISTRIBUTION
+
+    # 11. Exploratory analysis & open-ended deep dives -> EXPLORATORY_ANALYSIS
+    exploratory_indicators = [
+        r"\bexplore\b",
+        r"\bexploratory\b",
+        r"\bdeep dive\b",
+        r"\boverview\b",
+        r"\banalyze\b",
+        r"\banalysis\b",
+        r"\bperformance\b",
+        r"\bevaluate\b",
+        r"\bevaluation\b",
+        r"\bحلل\b",
+        r"\bتحليل\b",
+        r"\bأداء\b",
+        r"\bاداء\b",
+        r"\bاستكشف\b",
+        r"\bاستكشاف\b",
+        r"\bنظرة عامة\b",
+        r"\bتقييم\b",
+    ]
+    for pattern in exploratory_indicators:
+        if re.search(pattern, q):
+            return AnalysisType.EXPLORATORY_ANALYSIS
+
+    # 12. Temporal trends & trajectories -> TREND
     trend_indicators = [
         r"\btrend\b",
         r"\btrends\b",
         r"\bover time\b",
+        r"\bchange over\b",
+        r"\bchanged over\b",
+        r"\bchange across\b",
         r"\byear over year\b",
         r"\bmonth over month\b",
         r"\bgrowth rate\b",
-        r"\bcorrelation\b",
-        r"\brelationship between\b",
+        r"\bgrowth\b",
+        r"\bhistorical\b",
         r"\bاتجاه\b",
         r"\bمسار\b",
         r"\bبمرور الوقت\b",
         r"\bعبر الزمن\b",
+        r"\bتغير عبر\b",
         r"\bنمو\b",
-        r"\bعلاقة\b",
-        r"\bارتباط\b",
         r"\bتطور\b",
+        r"\bتاريخي\b",
     ]
     for pattern in trend_indicators:
         if re.search(pattern, q):
             return AnalysisType.TREND
 
-    # 5. Simple Count -> COUNT
-    # 'كام' is the common Egyptian/Gulf colloquial spelling of 'كم' (how many)
-    # — without it, everyday phrasing like "كام طلب اتعمل؟" falls through to
-    # UNKNOWN and the grounding engine loses its seed-table signal entirely.
+    # 13. Simple Count -> COUNT
     if re.search(r"\b(how many|count|number of|كم|كام|كم عدد|عدد|احسب)\b", q):
         return AnalysisType.COUNT
 
-    # 6. Ranking -> RANKING
+    # 14. Ranking -> RANKING
     if re.search(r"\b(top|bottom|best|worst|highest|lowest|most|least|اعلى|أعلى|اقل|أقل|افضل|أفضل|اسوأ|أسوأ|اكثر|أكثر|اكتر)\b", q):
         return AnalysisType.RANKING
 
-    # 7. Aggregation -> AGGREGATION
+    # 15. Aggregation -> AGGREGATION
     if re.search(r"\b(total|sum|average|avg|min|max|minimum|maximum|اجمالي|إجمالي|مجموع|متوسط|معدل|حد ادنى|حد أقصى|اكبر|أكبر|اصغر|أصغر)\b", q):
         return AnalysisType.AGGREGATION
 
-    # 8. Simple Lookup -> LOOKUP
+    # 16. Simple Lookup -> LOOKUP
     if re.search(r"\b(show|list|find|get|select|details|عرض|اعرض|هات|قائمة|ابحث|تفاصيل|هاتلي|وريني|ورينى)\b", q):
         return AnalysisType.LOOKUP
 

@@ -1,6 +1,6 @@
 "use client";
 
-/* eslint-disable react-hooks/immutability, react-hooks/set-state-in-effect */
+/* eslint-disable react-hooks/set-state-in-effect */
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { 
@@ -13,8 +13,7 @@ import {
   Layers, 
   ChevronRight, 
   ChevronDown, 
-  FileCode2,
-  Hash
+  FileCode2
 } from "lucide-react";
 import { SchemaTreeNode, BaseDBObject } from "@/types/api";
 
@@ -40,6 +39,19 @@ interface FlatNode {
   originalNode: SchemaTreeNode;
 }
 
+function checkNodeMatch(node: SchemaTreeNode, query: string, columnsMap: Map<string, string[]>): boolean {
+  const q = query.toLowerCase();
+  if (node.name.toLowerCase().includes(q)) return true;
+  if (node.kind === "table" || node.kind === "view" || node.kind === "collection") {
+    const cols = columnsMap.get(node.name.toLowerCase());
+    if (cols && cols.some((col) => col.includes(q))) return true;
+  }
+  if (node.children) {
+    return node.children.some((child) => checkNodeMatch(child, q, columnsMap));
+  }
+  return false;
+}
+
 export function SchemaTreeView({
   tree,
   allObjects,
@@ -61,23 +73,6 @@ export function SchemaTreeView({
     return map;
   }, [allObjects]);
 
-  // Determine if a node or any of its descendants match the search query
-  const checkMatch = useCallback(
-    (node: SchemaTreeNode, query: string): boolean => {
-      const q = query.toLowerCase();
-      if (node.name.toLowerCase().includes(q)) return true;
-      if (node.kind === "table" || node.kind === "view" || node.kind === "collection") {
-        const cols = columnsByObject.get(node.name.toLowerCase());
-        if (cols && cols.some((col) => col.includes(q))) return true;
-      }
-      if (node.children) {
-        return node.children.some((child) => checkMatch(child, q));
-      }
-      return false;
-    },
-    [columnsByObject]
-  );
-
   // Collect node IDs that must be expanded during search
   useEffect(() => {
     if (!searchQuery.trim()) return;
@@ -85,7 +80,7 @@ export function SchemaTreeView({
 
     const traverse = (node: SchemaTreeNode) => {
       if (node.children && node.children.length > 0) {
-        if (checkMatch(node, searchQuery)) {
+        if (checkNodeMatch(node, searchQuery, columnsByObject)) {
           newExpanded.add(node.id);
           node.children.forEach(traverse);
         }
@@ -94,24 +89,27 @@ export function SchemaTreeView({
 
     tree.forEach(traverse);
     setExpandedIds((prev) => new Set([...prev, ...newExpanded]));
-  }, [searchQuery, tree, checkMatch]);
+  }, [searchQuery, tree, columnsByObject]);
 
-  // Default expand top catalogs and schemas if empty
+  // Auto expand tree on initial load
   useEffect(() => {
-    if (expandedIds.size === 0 && tree.length > 0) {
-      const initial = new Set<string>();
-      tree.forEach((cat) => {
-        initial.add(cat.id);
-        if (cat.children) {
-          cat.children.forEach((sch) => {
-            initial.add(sch.id);
-            if (sch.children) {
-              sch.children.forEach((folder) => initial.add(folder.id));
-            }
-          });
-        }
+    if (tree.length > 0) {
+      setExpandedIds((prev) => {
+        if (prev.size > 0) return prev;
+        const initial = new Set<string>();
+        tree.forEach((cat) => {
+          initial.add(cat.id);
+          if (cat.children) {
+            cat.children.forEach((sch) => {
+              initial.add(sch.id);
+              if (sch.children) {
+                sch.children.forEach((folder) => initial.add(folder.id));
+              }
+            });
+          }
+        });
+        return initial;
       });
-      setExpandedIds(initial);
     }
   }, [tree]);
 
@@ -133,7 +131,7 @@ export function SchemaTreeView({
     const isSearching = searchQuery.trim().length > 0;
 
     const buildList = (node: SchemaTreeNode, level: number, parentPath: string[]) => {
-      const matchesSearch = isSearching ? checkMatch(node, searchQuery) : true;
+      const matchesSearch = isSearching ? checkNodeMatch(node, searchQuery, columnsByObject) : true;
       if (!matchesSearch) return;
 
       const hasChildren = Boolean(node.children && node.children.length > 0);
@@ -161,7 +159,7 @@ export function SchemaTreeView({
 
     tree.forEach((root) => buildList(root, 0, []));
     return list;
-  }, [tree, expandedIds, searchQuery, checkMatch]);
+  }, [tree, expandedIds, searchQuery, columnsByObject]);
 
   // Keyboard navigation handler for WCAG 2.1 compliance
   const handleKeyDown = (e: React.KeyboardEvent) => {

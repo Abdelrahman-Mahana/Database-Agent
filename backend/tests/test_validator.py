@@ -52,8 +52,8 @@ def test_transpile_sql_to_dialect_limit_enforced(monkeypatch):
 
 
 def test_dialect_aware_sql_prompt_builder():
-    from app.sql.prompt_builder import SQLPromptBuilder
-    from app.sql.dialect_rules import get_dialect_guidelines
+    from app.services.sql.prompt_builder import SQLPromptBuilder
+    from app.services.sql.dialect_rules import get_dialect_guidelines
 
     builder = SQLPromptBuilder()
 
@@ -116,7 +116,7 @@ def test_dialect_aware_sql_prompt_builder():
 def test_validate_execution_ast_and_explain():
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
-    from app.sql.validator import SQLValidator
+    from app.services.sql.validator import SQLValidator
     from app.services.sql_service import SQLExecutor
 
     # Create in-memory SQLite database

@@ -1,19 +1,17 @@
 "use client";
 
-/* eslint-disable @typescript-eslint/no-explicit-any, react-hooks/immutability */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { useState, useEffect, useRef, Suspense } from "react";
+import { useState, useEffect, useRef, Suspense, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/services/api";
 import { SchemaResponse, ChatResponse } from "@/types/api";
 import { ChatMessage, useAppStore } from "@/store/useAppStore";
 import { cn } from "@/lib/utils";
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
-  MessageSquare,
   Send,
   Bot,
   User,
@@ -33,7 +31,10 @@ import {
   BarChart3,
   LineChart as LineIcon,
   PieChart as PieIcon,
-  TrendingUp
+  TrendingUp,
+  Download,
+  Bookmark,
+  FileText
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -52,6 +53,7 @@ import {
 } from "recharts";
 
 const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#6366f1'];
+const USER_ID = "default_user";
 
 type MessageItem = ChatMessage;
 
@@ -83,25 +85,181 @@ function parseInlineFormatting(text: string): React.ReactNode[] {
   });
 }
 
-// Dedicated visual formatter for Analyst Reports to ensure stunning typography and question-aligned layout
-function FormattedReportText({ text, isRtl }: { text: string; isRtl: boolean }) {
+// Present the answer as a guided explanation while keeping technical details secondary.
+function ConversationalAnswer({ text, isRtl }: { text: string; isRtl: boolean }) {
   if (!text) return null;
   const lines = text.split("\n");
 
   return (
     <div dir={isRtl ? "rtl" : "ltr"} className={cn("space-y-2 text-sm leading-relaxed w-full", isRtl ? "text-right font-sans" : "text-left font-sans")}>
-      {lines.map((line, idx) => {
-        const trimmed = line.trim();
-        if (!trimmed) return <div key={idx} className="h-2" />;
+      {(() => {
+        const nodes: React.ReactNode[] = [];
+        for (let idx = 0; idx < lines.length; idx++) {
+          const line = lines[idx];
+          const trimmed = line.trim();
+          
+          if (!trimmed) {
+            nodes.push(<div key={`empty-${idx}`} className="h-2" />);
+            continue;
+          }
 
-        const isSummaryLine = /^(Short answer:|الخلاصة:)/.test(trimmed);
-        if (isSummaryLine) {
-          return (
+          // Markdown Table Parser
+          if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
+            const tableRows = [];
+            while (idx < lines.length && lines[idx].trim().startsWith("|") && lines[idx].trim().endsWith("|")) {
+              tableRows.push(lines[idx].trim());
+              idx++;
+            }
+            idx--; // Adjust for outer loop increment
+            
+            // Safety check for valid markdown table with separator
+            if (tableRows.length >= 2 && tableRows[1].includes("-")) {
+              nodes.push(
+                <div key={`table-${idx}`} className="my-4 w-full overflow-x-auto rounded-lg border border-border/50 shadow-sm">
+                  <table className="w-full text-sm">
+                    <thead className="bg-sky-500/10 font-semibold text-foreground border-b border-border/50">
+                      <tr>
+                        {tableRows[0].split("|").map(c => c.trim()).filter(Boolean).map((cell, cIdx) => (
+                          <th key={cIdx} className={cn("px-4 py-2.5", isRtl ? "text-right font-sans" : "text-left")}>
+                            {parseInlineFormatting(cell)}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50 bg-background/50">
+                      {tableRows.slice(2).map((r, rIdx) => {
+                        const cells = r.split("|").map(c => c.trim()).filter(Boolean);
+                        return (
+                          <tr key={rIdx} className="hover:bg-muted/30 transition-colors">
+                            {cells.map((cell, cIdx) => (
+                              <td key={cIdx} className={cn("px-4 py-2 whitespace-nowrap", isRtl ? "text-right font-sans" : "text-left")}>
+                                {parseInlineFormatting(cell)}
+                              </td>
+                            ))}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              );
+              continue;
+            } else {
+              // If it's just one line with pipes, fall back to normal rendering
+              tableRows.forEach((tr, trIdx) => {
+                nodes.push(<p key={`fallback-table-${idx}-${trIdx}`} className={cn("whitespace-pre-wrap leading-relaxed w-full", isRtl ? "text-right font-sans" : "text-left")}>{parseInlineFormatting(tr)}</p>);
+              });
+              continue;
+            }
+          }
+
+          const isSummaryLine = /^(Short answer:|الخلاصة:)/.test(trimmed);
+          if (isSummaryLine) {
+            nodes.push(
+              <p
+                key={idx}
+                dir={isRtl ? "rtl" : "ltr"}
+                className={cn(
+                  "border-sky-500/25 bg-sky-500/10 px-4 py-3.5 text-sm leading-relaxed shadow-sm rounded-r-xl",
+                  isRtl ? "text-right font-sans" : "text-left"
+                )}
+              >
+                {parseInlineFormatting(trimmed)}
+              </p>
+            );
+            continue;
+          }
+
+          const isExplanationLine = /^(What this means:|المعنى ببساطة:)/.test(trimmed);
+          if (isExplanationLine) {
+            nodes.push(
+              <p
+                key={idx}
+                dir={isRtl ? "rtl" : "ltr"}
+                className={cn(
+                  "border-l-2 border-border/70 bg-muted/20 px-4 py-3 text-sm leading-relaxed text-muted-foreground rounded-r-lg",
+                  isRtl ? "text-right font-sans" : "text-left"
+                )}
+              >
+                {parseInlineFormatting(trimmed)}
+              </p>
+            );
+            continue;
+          }
+
+          const isAuditLine = /^(To verify it,|للمراجعة:)/.test(trimmed);
+          if (isAuditLine) {
+            nodes.push(
+              <p
+                key={idx}
+                dir={isRtl ? "rtl" : "ltr"}
+                className={cn(
+                  "text-xs text-muted-foreground border-t border-border/40 pt-3 mt-4",
+                  isRtl ? "text-right font-sans" : "text-left"
+                )}
+              >
+                {parseInlineFormatting(trimmed)}
+              </p>
+            );
+            continue;
+          }
+
+          // Headings (#, ##, ###)
+          if (trimmed.startsWith("#")) {
+            const content = trimmed.replace(/^#+\s*/, "").replace(/\s*#+$/, "");
+            nodes.push(
+              <h3
+                key={idx}
+                dir={isRtl ? "rtl" : "ltr"}
+                className={cn(
+                  "flex items-center gap-2 font-bold text-base md:text-lg text-primary pt-3 pb-1.5 mb-2 border-b border-border/40 first:pt-0 w-full",
+                  isRtl ? "text-right font-sans" : "text-left"
+                )}
+              >
+                <span className="inline-block w-1.5 h-4 bg-sky-400 rounded-full shrink-0" />
+                <span>{content}</span>
+              </h3>
+            );
+            continue;
+          }
+
+          // List items (- or * or • or numbered items like 1. 2.)
+          const isBullet = /^[-\*•]\s+/.test(trimmed);
+          const isNumber = /^\d+\.\s+/.test(trimmed);
+          if (isBullet || isNumber) {
+            const bulletMatch = trimmed.match(/^([-\*•]|\d+\.)\s+(.*)/);
+            const bulletSymbol = bulletMatch ? bulletMatch[1] : "•";
+            const bulletText = bulletMatch ? bulletMatch[2] : trimmed;
+
+            nodes.push(
+              <div
+                key={idx}
+                dir={isRtl ? "rtl" : "ltr"}
+                className={cn(
+                  "flex items-start gap-2.5 my-1.5 text-sm w-full",
+                  isRtl ? "text-right pr-2 font-sans" : "text-left pl-2"
+                )}
+              >
+                <span className="text-sky-400 font-bold shrink-0 mt-0.5 text-xs select-none">
+                  {isNumber ? bulletSymbol : "•"}
+                </span>
+                <span className={cn("flex-1 leading-relaxed", isRtl ? "text-right font-sans" : "text-left")}>
+                  {parseInlineFormatting(bulletText)}
+                </span>
+              </div>
+            );
+            continue;
+          }
+
+          // Normal paragraphs and italicized system notes
+          const isNote = trimmed.startsWith("*Note:") || trimmed.startsWith("*ملاحظة") || trimmed.startsWith("ملاحظة:");
+          nodes.push(
             <p
               key={idx}
               dir={isRtl ? "rtl" : "ltr"}
               className={cn(
-                "rounded-xl border border-sky-500/20 bg-sky-500/10 px-3.5 py-3 text-sm leading-relaxed shadow-sm",
+                "whitespace-pre-wrap leading-relaxed w-full",
+                isNote ? "text-xs text-muted-foreground italic bg-muted/20 p-2.5 rounded-lg border border-border/40" : "",
                 isRtl ? "text-right font-sans" : "text-left"
               )}
             >
@@ -109,100 +267,102 @@ function FormattedReportText({ text, isRtl }: { text: string; isRtl: boolean }) 
             </p>
           );
         }
+        return nodes;
+      })()}
+    </div>
+  );
+}
 
-        const isExplanationLine = /^(What this means:|المعنى ببساطة:)/.test(trimmed);
-        if (isExplanationLine) {
-          return (
-            <p
-              key={idx}
-              dir={isRtl ? "rtl" : "ltr"}
-              className={cn(
-                "rounded-xl border border-border/50 bg-muted/25 px-3.5 py-3 text-sm leading-relaxed text-muted-foreground",
-                isRtl ? "text-right font-sans" : "text-left"
-              )}
+function FormattedWarningText({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const match = text.match(/Columns \[(.*?)\] returned NULL for all rows/i);
+
+  if (match) {
+    const rawCols = match[1]
+      .split(",")
+      .map((c) => c.trim().replace(/^['"]|['"]$/g, ""))
+      .filter(Boolean);
+    const visibleCols = expanded ? rawCols : rawCols.slice(0, 8);
+    const hasMore = rawCols.length > 8;
+
+    return (
+      <div className="space-y-1.5">
+        <p className="font-semibold text-amber-400">
+          ⚠️ {rawCols.length} columns returned NULL (empty) for all rows:
+        </p>
+        <div className="flex flex-wrap gap-1 mt-1">
+          {visibleCols.map((c, i) => (
+            <span
+              key={i}
+              className="px-1.5 py-0.5 rounded bg-muted/60 text-[10px] font-mono text-muted-foreground border border-border/40"
             >
-              {parseInlineFormatting(trimmed)}
-            </p>
-          );
-        }
-
-        const isAuditLine = /^(To verify it,|للمراجعة:)/.test(trimmed);
-        if (isAuditLine) {
-          return (
-            <p
-              key={idx}
-              dir={isRtl ? "rtl" : "ltr"}
-              className={cn(
-                "text-xs text-muted-foreground border-t border-border/40 pt-3 mt-3",
-                isRtl ? "text-right font-sans" : "text-left"
-              )}
+              {c}
+            </span>
+          ))}
+          {hasMore && !expanded && (
+            <button
+              type="button"
+              onClick={() => setExpanded(true)}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-semibold hover:bg-amber-500/30 transition-colors"
             >
-              {parseInlineFormatting(trimmed)}
-            </p>
-          );
-        }
+              +{rawCols.length - 8} more
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
-        // Headings (#, ##, ###)
-        if (trimmed.startsWith("#")) {
-          const content = trimmed.replace(/^#+\s*/, "").replace(/\s*#+$/, "");
-          return (
-            <h3
-              key={idx}
-              dir={isRtl ? "rtl" : "ltr"}
-              className={cn(
-                "flex items-center gap-2 font-bold text-base md:text-lg text-primary pt-3 pb-1.5 mb-2 border-b border-border/40 first:pt-0 w-full",
-                isRtl ? "text-right font-sans" : "text-left"
-              )}
-            >
-              <span className="inline-block w-1.5 h-4 bg-sky-400 rounded-full shrink-0" />
-              <span>{content}</span>
-            </h3>
-          );
-        }
+  return <p>{text}</p>;
+}
 
-        // List items (- or * or • or numbered items like 1. 2.)
-        const isBullet = /^[-\*•]\s+/.test(trimmed);
-        const isNumber = /^\d+\.\s+/.test(trimmed);
-        if (isBullet || isNumber) {
-          const bulletMatch = trimmed.match(/^([-\*•]|\d+\.)\s+(.*)/);
-          const bulletSymbol = bulletMatch ? bulletMatch[1] : "•";
-          const bulletText = bulletMatch ? bulletMatch[2] : trimmed;
+function CollapsibleWarnings({ warnings, isRtl }: { warnings: string[]; isRtl: boolean }) {
+  const [isOpen, setIsOpen] = useState(false);
+  if (!warnings || warnings.length === 0) return null;
 
-          return (
+  return (
+    <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 overflow-hidden text-xs my-2">
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between px-3.5 py-2 hover:bg-amber-500/10 transition-colors text-amber-400 font-medium font-sans"
+      >
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+          <span>
+            {isRtl
+              ? `ملاحظات جودة البيانات والاستعلام (${warnings.length})`
+              : `Data Quality & Query Notes (${warnings.length})`}
+          </span>
+        </div>
+        <span className="text-[11px] text-amber-400/80 underline flex items-center gap-1">
+          {isOpen
+            ? isRtl
+              ? "إخفاء التفاصيل"
+              : "Hide Details"
+            : isRtl
+              ? "عرض التفاصيل"
+              : "View Details"}
+          {isOpen ? (
+            <ChevronDown className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronRight className={cn("h-3.5 w-3.5", isRtl && "rotate-180")} />
+          )}
+        </span>
+      </button>
+
+      {isOpen && (
+        <div className="p-3 pt-1 border-t border-amber-500/20 space-y-2 text-muted-foreground font-sans">
+          {warnings.map((w, idx) => (
             <div
               key={idx}
-              dir={isRtl ? "rtl" : "ltr"}
-              className={cn(
-                "flex items-start gap-2.5 my-1.5 text-sm w-full",
-                isRtl ? "text-right pr-2 font-sans" : "text-left pl-2"
-              )}
+              className="p-2.5 rounded-lg bg-black/20 border border-border/30 text-xs leading-relaxed space-y-1"
             >
-              <span className="text-sky-400 font-bold shrink-0 mt-0.5 text-xs select-none">
-                {isNumber ? bulletSymbol : "•"}
-              </span>
-              <span className={cn("flex-1 leading-relaxed", isRtl ? "text-right font-sans" : "text-left")}>
-                {parseInlineFormatting(bulletText)}
-              </span>
+              <FormattedWarningText text={w} />
             </div>
-          );
-        }
-
-        // Normal paragraphs and italicized system notes
-        const isNote = trimmed.startsWith("*Note:") || trimmed.startsWith("*ملاحظة") || trimmed.startsWith("ملاحظة:");
-        return (
-          <p
-            key={idx}
-            dir={isRtl ? "rtl" : "ltr"}
-            className={cn(
-              "whitespace-pre-wrap leading-relaxed w-full",
-              isNote ? "text-xs text-muted-foreground italic bg-muted/20 p-2.5 rounded-lg border border-border/40" : "",
-              isRtl ? "text-right font-sans" : "text-left"
-            )}
-          >
-            {parseInlineFormatting(trimmed)}
-          </p>
-        );
-      })}
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -213,7 +373,9 @@ function QueryResultSection({
   copyToClipboard,
   copiedIndex,
   isRtl,
-  preferences = {}
+  preferences = {},
+  onBookmarkQuery,
+  onSuggestionClick,
 }: {
   response: ChatResponse;
   index: number;
@@ -221,10 +383,13 @@ function QueryResultSection({
   copiedIndex: number | null;
   isRtl: boolean;
   preferences?: Record<string, any>;
+  onBookmarkQuery?: (sql: string, question?: string) => void;
+  onSuggestionClick?: (sug: string) => void;
 }) {
   const [showSql, setShowSql] = useState(Boolean(preferences.showSqlDefault));
   const [showResults, setShowResults] = useState(Boolean(preferences.showTableDefault));
   const [showChart, setShowChart] = useState(true);
+  const [isBookmarked, setIsBookmarked] = useState(false);
 
   // Chart suggestion parsing & data preparation
   const hasChartSuggestion = Boolean(
@@ -254,9 +419,46 @@ function QueryResultSection({
     })
     : [];
 
+  const handleDownloadCsv = () => {
+    if (!response.results || response.results.length === 0) return;
+    const headers = Object.keys(response.results[0]);
+    const csvRows = [
+      headers.join(","),
+      ...response.results.map(row =>
+        headers.map(h => `"${String(row[h] ?? '').replace(/"/g, '""')}"`).join(",")
+      )
+    ];
+    const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `query_results_${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadJson = () => {
+    if (!response.results || response.results.length === 0) return;
+    const blob = new Blob([JSON.stringify(response.results, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `query_results_${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleBookmark = () => {
+    if (response.sql && onBookmarkQuery) {
+      onBookmarkQuery(response.sql, response.question);
+      setIsBookmarked(true);
+      setTimeout(() => setIsBookmarked(false), 2500);
+    }
+  };
+
   return (
     <div className="space-y-3 pt-3 border-t border-border/40 w-full" dir={isRtl ? "rtl" : "ltr"}>
-      {/* Analytical Chart Visualizer (Shown automatically when AI determines a chart is helpful) */}
+      {/* Analytical Chart Visualizer */}
       {hasChartSuggestion && (
         <div className="rounded-xl border border-border/60 bg-card overflow-hidden shadow-sm w-full mb-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 py-3 bg-muted/20 border-b border-border/40">
@@ -395,7 +597,7 @@ function QueryResultSection({
         </div>
       )}
 
-      {/* Generated SQL Section - Collapsible (Default Hidden) */}
+      {/* Generated SQL Section - Collapsible */}
       {response.sql && (
         <div className="rounded-xl border border-border/60 bg-black/40 overflow-hidden shadow-sm w-full">
           <button
@@ -408,7 +610,7 @@ function QueryResultSection({
           >
             <div className="flex items-center gap-2 text-foreground font-semibold font-sans">
               <Code className="h-4 w-4 text-sky-400 shrink-0" />
-              <span>{isRtl ? "طريقة الوصول للإجابة (SQL)" : "How I got it (SQL)"}</span>
+              <span>{isRtl ? "كيف وصلت للإجابة (SQL)" : "How I arrived at this answer (SQL)"}</span>
             </div>
             <div className="flex items-center gap-2 bg-muted/40 px-2.5 py-1 rounded-md text-[11px] text-muted-foreground hover:text-foreground font-sans">
               {showSql ? (
@@ -429,7 +631,26 @@ function QueryResultSection({
 
           {showSql && (
             <div className="border-t border-border/40">
-              <div className={cn("flex items-center px-4 py-1.5 bg-muted/10 border-b border-border/30", isRtl ? "justify-start" : "justify-end")}>
+              <div className={cn("flex items-center justify-between px-4 py-1.5 bg-muted/10 border-b border-border/30 gap-2")}>
+                <button
+                  type="button"
+                  onClick={handleBookmark}
+                  className="flex items-center gap-1.5 text-xs text-sky-400 hover:text-sky-300 transition-colors font-sans"
+                  title="Bookmark SQL query to long-term memory"
+                >
+                  {isBookmarked ? (
+                    <>
+                      <Check className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                      <span>{isRtl ? "تم الحفظ بالمفضلة" : "Bookmarked"}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Bookmark className="h-3.5 w-3.5 shrink-0" />
+                      <span>{isRtl ? "حفظ كقالب" : "Bookmark Query"}</span>
+                    </>
+                  )}
+                </button>
+
                 <button
                   type="button"
                   onClick={() => copyToClipboard(response.sql!, index)}
@@ -467,40 +688,62 @@ function QueryResultSection({
         </div>
       )}
 
-      {/* Results Table Section - Collapsible (Default Hidden) */}
+      {/* Results Table Section - Collapsible */}
       {response.results && response.results.length > 0 && (
         <div className="rounded-xl border border-border/60 bg-card overflow-hidden shadow-sm w-full">
-          <button
-            type="button"
-            onClick={() => setShowResults(!showResults)}
-            className={cn(
-              "w-full flex items-center justify-between px-4 py-2.5 bg-muted/20 hover:bg-muted/40 transition-colors text-xs font-mono text-muted-foreground",
-              isRtl && "font-sans"
-            )}
-          >
-            <div className="flex items-center gap-2 text-foreground font-semibold font-sans">
+          <div className="flex items-center justify-between px-4 py-2.5 bg-muted/20 border-b border-border/40">
+            <button
+              type="button"
+              onClick={() => setShowResults(!showResults)}
+              className="flex items-center gap-2 text-foreground font-semibold font-sans text-xs"
+            >
               <TableIcon className="h-4 w-4 text-sky-500 shrink-0" />
-              <span>{isRtl ? `البيانات الخام (${response.results.length} صف)` : `Raw data (${response.results.length} rows)`}</span>
+              <span>{isRtl ? `البيانات التي اعتمدت عليها (${response.results.length} صف)` : `Data behind the answer (${response.results.length} rows)`}</span>
+            </button>
+
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleDownloadCsv}
+                className="h-7 px-2 text-[11px] gap-1 text-muted-foreground hover:text-foreground"
+                title="Download data as CSV"
+              >
+                <Download className="h-3 w-3" />
+                CSV
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleDownloadJson}
+                className="h-7 px-2 text-[11px] gap-1 text-muted-foreground hover:text-foreground"
+                title="Download data as JSON"
+              >
+                <Download className="h-3 w-3" />
+                JSON
+              </Button>
+              <button
+                type="button"
+                onClick={() => setShowResults(!showResults)}
+                className="flex items-center gap-1 bg-muted/40 px-2 py-1 rounded-md text-[11px] text-muted-foreground hover:text-foreground font-sans"
+              >
+                {showResults ? (
+                  <>
+                    <EyeOff className="h-3 w-3 text-amber-400 shrink-0" />
+                    <span>{isRtl ? "إخفاء" : "Hide"}</span>
+                  </>
+                ) : (
+                  <>
+                    <Eye className="h-3 w-3 text-sky-500 shrink-0" />
+                    <span>{isRtl ? "عرض" : "Show"}</span>
+                  </>
+                )}
+              </button>
             </div>
-            <div className="flex items-center gap-2 bg-muted/40 px-2.5 py-1 rounded-md text-[11px] text-muted-foreground hover:text-foreground font-sans">
-              {showResults ? (
-                <>
-                  <EyeOff className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                  <span>{isRtl ? "إخفاء الجدول" : "Hide Table"}</span>
-                  <ChevronDown className="h-3.5 w-3.5 ml-0.5 shrink-0" />
-                </>
-              ) : (
-                <>
-                  <Eye className="h-3.5 w-3.5 text-sky-500 shrink-0" />
-                  <span>{isRtl ? "عرض البيانات" : "Show Data"}</span>
-                  <ChevronRight className={cn("h-3.5 w-3.5 shrink-0", isRtl ? "mr-0.5 rotate-180" : "ml-0.5")} />
-                </>
-              )}
-            </div>
-          </button>
+          </div>
 
           {showResults && (
-            <div className="border-t border-border/40 p-2 overflow-x-auto max-h-96 overflow-y-auto">
+            <div className="p-2 overflow-x-auto max-h-96 overflow-y-auto">
               <table className="w-full text-xs border-collapse">
                 <thead className="bg-muted/60 border-b border-border/50 sticky top-0 font-mono text-[11px] text-muted-foreground">
                   <tr>
@@ -533,8 +776,9 @@ function QueryResultSection({
             <button
               key={sIdx}
               type="button"
+              onClick={() => onSuggestionClick && onSuggestionClick(sug)}
               className={cn(
-                "text-xs bg-secondary/80 hover:bg-secondary text-secondary-foreground px-3 py-1.5 rounded-full transition-colors flex items-center gap-1.5 border border-border/40 font-medium",
+                "text-xs bg-secondary/80 hover:bg-secondary text-secondary-foreground px-3 py-1.5 rounded-full transition-colors flex items-center gap-1.5 border border-border/40 font-medium cursor-pointer",
                 isRtl && "font-sans"
               )}
             >
@@ -552,10 +796,12 @@ function ChatContent() {
   const searchParams = useSearchParams();
   const initialPrompt = searchParams.get("prompt") || "";
 
+  const queryClient = useQueryClient();
   const { activeDatabase, chatMessages: messages, setChatMessages: setMessages, clearChatMessages } = useAppStore();
   const hasHandledInitialPromptRef = useRef(false);
   const [inputMessage, setInputMessage] = useState("");
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [copiedAnswerIdx, setCopiedAnswerIdx] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Fetch recommended questions from active schema
@@ -569,33 +815,39 @@ function ChatContent() {
 
   // Fetch user settings & display defaults
   const { data: prefData } = useQuery({
-    queryKey: ['user-preferences', 'default_user'],
+    queryKey: ['user-preferences', USER_ID],
     queryFn: async () => {
       try {
-        const res = await apiClient.get('/memory/preferences?user_id=default_user');
+        const res = await apiClient.get(`/memory/preferences?user_id=${USER_ID}`);
         return res.data?.preferences || {};
-      } catch (e) {
+      } catch {
         return {};
       }
     },
   });
   const preferences = prefData || {};
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  }, []);
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, scrollToBottom]);
 
-  // Handle URL query parameter pre-fill
-  useEffect(() => {
-    if (initialPrompt && messages.length === 0 && !hasHandledInitialPromptRef.current) {
-      hasHandledInitialPromptRef.current = true;
-      handleSendMessage(initialPrompt);
-    }
-  }, [initialPrompt, messages.length]);
+  const bookmarkMutation = useMutation({
+    mutationFn: async ({ question, sql, label }: { question: string; sql: string; label?: string }) => {
+      await apiClient.post('/memory/queries', {
+        user_id: USER_ID,
+        question,
+        sql,
+        label: label || "Saved from Chat",
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['saved-queries', USER_ID] });
+    },
+  });
 
   const chatMutation = useMutation({
     mutationFn: async (messageText: string) => {
@@ -630,8 +882,8 @@ function ChatContent() {
       let text = "";
       if (isTimeout) {
         text = isAr
-          ? "استغرقت عملية تحليل البيانات وكتابة التقرير وقتًا أطول من المتوقع (Timeout). يُرجى إعادة محاولة إرسال السؤال مرة أخرى."
-          : "Data analysis and report generation took longer than expected (Timeout). Please try submitting your question again.";
+          ? "استغرقت مراجعة البيانات وتجهيز الشرح وقتًا أطول من المتوقع (Timeout). يُرجى إعادة إرسال السؤال مرة أخرى."
+          : "Reviewing the data and preparing the explanation took longer than expected (Timeout). Please try submitting your question again.";
       } else {
         text = isAr
           ? `حدث خطأ أثناء معالجة طلبك: ${rawError}`
@@ -649,7 +901,7 @@ function ChatContent() {
     },
   });
 
-  const handleSendMessage = (textToSend?: string) => {
+  const handleSendMessage = useCallback((textToSend?: string) => {
     const queryText = (textToSend || inputMessage).trim();
     if (!queryText || chatMutation.isPending) return;
 
@@ -662,17 +914,24 @@ function ChatContent() {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
-
     setMessages((prev) => [...prev, userMsg]);
     if (!textToSend) setInputMessage("");
 
     chatMutation.mutate(queryText);
-  };
+  }, [inputMessage, chatMutation, setMessages]);
+
+  // Handle URL query parameter pre-fill
+  useEffect(() => {
+    if (initialPrompt && messages.length === 0 && !hasHandledInitialPromptRef.current) {
+      hasHandledInitialPromptRef.current = true;
+      handleSendMessage(initialPrompt);
+    }
+  }, [initialPrompt, messages.length, handleSendMessage]);
 
   const handleClearHistory = async () => {
     try {
       await apiClient.delete('/chat/history?session_id=default_session');
-    } catch (e) {
+    } catch {
       // ignore clear errors
     }
     clearChatMessages();
@@ -682,6 +941,49 @@ function ChatContent() {
     navigator.clipboard.writeText(code);
     setCopiedIndex(idx);
     setTimeout(() => setCopiedIndex(null), 2000);
+  };
+
+  const copyAnswerToClipboard = (text: string, idx: number) => {
+    navigator.clipboard.writeText(text);
+    setCopiedAnswerIdx(idx);
+    setTimeout(() => setCopiedAnswerIdx(null), 2000);
+  };
+
+  const handleExportSessionMarkdown = () => {
+    if (messages.length === 0) return;
+    const lines: string[] = [
+      `# AI Database Analyst Executive Report`,
+      `**Generated:** ${new Date().toLocaleString()}`,
+      `**Database:** ${schemaData?.database_name || "Active Database"} (${schemaData?.database_type || "SQL"})`,
+      `---`,
+      ``,
+    ];
+
+    messages.forEach((msg, i) => {
+      if (msg.sender === "user") {
+        lines.push(`## Query ${Math.floor(i / 2) + 1}: ${msg.text}`);
+        lines.push(`*Time:* ${msg.timestamp}`);
+        lines.push(``);
+      } else {
+        lines.push(`### Analysis & Findings`);
+        lines.push(msg.text);
+        lines.push(``);
+        if (msg.response?.sql) {
+          lines.push(`\`\`\`sql\n${msg.response.sql}\n\`\`\``);
+          lines.push(``);
+        }
+        lines.push(`---`);
+        lines.push(``);
+      }
+    });
+
+    const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Analyst_Report_${Date.now()}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const isInputRtl = isArabicText(inputMessage);
@@ -708,12 +1010,32 @@ function ChatContent() {
             </p>
           </div>
         </div>
-        {messages.length > 0 && (
-          <Button variant="ghost" size="sm" onClick={handleClearHistory} className="gap-1.5 text-xs text-muted-foreground hover:text-destructive">
-            <Trash2 className="h-3.5 w-3.5" />
-            Clear Chat
-          </Button>
-        )}
+
+        <div className="flex items-center gap-2">
+          {messages.length > 0 && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExportSessionMarkdown}
+                className="gap-1.5 text-xs"
+                title="Export entire chat session as Markdown report"
+              >
+                <FileText className="h-3.5 w-3.5 text-primary" />
+                Export Report
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleClearHistory}
+                className="gap-1.5 text-xs text-muted-foreground hover:text-destructive"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Clear Chat
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Messages Scroll Container */}
@@ -776,7 +1098,6 @@ function ChatContent() {
                 key={`${msg.id || 'msg'}-${index}`}
                 className={`flex gap-3 ${msg.sender === "user" ? "justify-end" : "justify-start"}`}
               >
-
                 {msg.sender === "assistant" && (
                   <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground font-semibold text-xs mt-1 shadow">
                     <Bot className="h-4 w-4" />
@@ -797,17 +1118,41 @@ function ChatContent() {
                   >
                     {msg.sender === "assistant" ? (
                       <>
+                        {/* Warnings */}
                         {msg.response?.warnings && msg.response.warnings.length > 0 && (
-                          <div className="mb-4 space-y-2">
-                            {msg.response.warnings.map((w, idx) => (
-                              <div key={idx} className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded-md text-sm flex items-start gap-2">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
-                                <span>{w}</span>
-                              </div>
-                            ))}
-                          </div>
+                          <CollapsibleWarnings warnings={msg.response.warnings} isRtl={isRtl} />
                         )}
-                        <FormattedReportText text={msg.text} isRtl={isRtl} />
+
+                        {/* Top Assistant Meta Header (Title + Quick Copy) */}
+                        <div className={cn("flex items-center justify-between pb-2 border-b border-border/30 text-xs text-muted-foreground", isRtl && "flex-row-reverse")}>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="flex items-center gap-1 text-primary font-semibold">
+                              <Sparkles className="h-3.5 w-3.5" />
+                              {isRtl ? "شرح الإجابة" : "Answer explanation"}
+                            </span>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => copyAnswerToClipboard(msg.text, index)}
+                            className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors font-sans px-2 py-0.5 rounded hover:bg-muted/40"
+                            title="Copy answer explanation"
+                          >
+                            {copiedAnswerIdx === index ? (
+                              <>
+                                <Check className="h-3 w-3 text-emerald-400" />
+                                <span>{isRtl ? "تم النسخ" : "Copied"}</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="h-3 w-3" />
+                                <span>{isRtl ? "نسخ الإجابة" : "Copy Answer"}</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+
+                        <ConversationalAnswer text={msg.text} isRtl={isRtl} />
                       </>
                     ) : (
                       <p className="whitespace-pre-wrap">{msg.text}</p>
@@ -822,6 +1167,11 @@ function ChatContent() {
                         copiedIndex={copiedIndex}
                         isRtl={isRtl}
                         preferences={preferences}
+                        onBookmarkQuery={(sql, q) => {
+                          const question = q || (messages[index - 1]?.sender === "user" ? messages[index - 1].text : "Saved Query");
+                          bookmarkMutation.mutate({ question, sql, label: "Chat Bookmark" });
+                        }}
+                        onSuggestionClick={(sug) => handleSendMessage(sug)}
                       />
                     )}
                   </div>
@@ -857,7 +1207,7 @@ function ChatContent() {
               <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                 <Sparkles className="h-3.5 w-3.5 text-primary animate-spin shrink-0" />
                 <span>
-                  {isLoadingRtl ? "جاري تحليل الجداول وتنفيذ الاستعلام وكتابة التقرير..." : "Analyzing schema & executing SQL query..."}
+                  {isLoadingRtl ? "براجع البيانات وأجهز لك شرحًا واضحًا..." : "Reviewing the data and preparing a clear explanation..."}
                 </span>
               </div>
               <div className="h-2 bg-muted/60 rounded-full animate-pulse w-3/4" />
@@ -881,7 +1231,7 @@ function ChatContent() {
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
             dir={isInputRtl ? "rtl" : "ltr"}
-            placeholder={isInputRtl ? "اسأل سؤالاً" : "Ask a question"}
+            placeholder={isInputRtl ? "اسأل سؤالاً حول قاعدة البيانات..." : "Ask a question about your database..."}
             className={cn(
               "flex-1 h-11 text-sm bg-card shadow-sm transition-all",
               isInputRtl ? "text-right font-sans" : "text-left"

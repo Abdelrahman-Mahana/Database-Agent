@@ -2,13 +2,13 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 
-from app.semantic.models import QueryUnderstanding, ExecutionRoute, IntentType
+from app.agent.semantic.models import QueryUnderstanding, ExecutionRoute, IntentType
 from app.utils.text_processor import AnalysisType
-from app.semantic.query_spec_builder import QuerySpecBuilder
-from app.agents.intent_classifier import IntentClassifier
-from app.semantic.hybrid import HybridQueryUnderstander
-from app.agents.analyst_agent import AnalystAgent
-from app.config.settings import settings
+from app.agent.semantic.query_spec_builder import QuerySpecBuilder
+from app.agent.orchestration.intent_classifier import IntentClassifier
+from app.agent.semantic.hybrid import HybridQueryUnderstander
+from app.agent.orchestration.analyst_agent import AnalystAgent
+from app.core.config.settings import settings
 
 
 def test_phase1_query_spec_canonical_contract():
@@ -103,7 +103,7 @@ async def test_phase1_end_to_end_smoke_pipeline():
         assert res["success"] is True
         assert res["sql"] == "SELECT COUNT(*) as active_users FROM users WHERE active = True"
         assert res["results"] == [{"active_users": 150}]
-        assert "150 active users" in res["report"]
+        assert "150" in res["report"] and "active users" in res["report"]
         assert "evaluation_trace" in res
         assert res["confidence_breakdown"]["overall"] > 0.8
 

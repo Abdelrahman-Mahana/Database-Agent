@@ -1,9 +1,9 @@
 import time
 import pytest
 from unittest.mock import MagicMock, patch
-from app.database.system_store import SystemStore
-from app.database.redis_store import RedisCoordinator, reset_redis_coordinator
-from app.middleware.rate_limit import consume_rate_limit, clear_ram_rate_limits
+from app.services.database.system_store import SystemStore
+from app.services.database.redis_store import RedisCoordinator, reset_redis_coordinator
+from app.core.middleware.rate_limit import consume_rate_limit, clear_ram_rate_limits
 
 
 def test_system_store_sqlite_in_memory():
@@ -46,7 +46,7 @@ def test_system_store_sqlite_in_memory():
 
 def test_system_store_postgresql_url_handling():
     """Verify postgres:// and postgresql:// URLs are normalized and configured with QueuePool."""
-    with patch("app.database.system_store.create_engine") as mock_engine:
+    with patch("app.services.database.system_store.create_engine") as mock_engine:
         store = SystemStore("postgres://postgres:password@localhost:5432/mydb")
         assert "postgresql+psycopg2://" in store.db_url
         assert not store.is_sqlite

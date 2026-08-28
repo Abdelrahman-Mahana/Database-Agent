@@ -1,6 +1,6 @@
 import time
 import pytest
-from app.schema_catalog.models import (
+from app.models.schema_catalog.models import (
     SchemaCatalog,
     TableProfile,
     ColumnProfile,
@@ -12,9 +12,9 @@ from app.schema_catalog.models import (
     AliasTermRecord,
     CatalogVersionRecord,
 )
-from app.database.system_store import SystemStore
-from app.schema_catalog.catalog_builder import CatalogBuilder
-from app.database.context import DatabaseContext, db_context_manager
+from app.services.database.system_store import SystemStore
+from app.models.schema_catalog.catalog_builder import CatalogBuilder
+from app.services.database.context import DatabaseContext, db_context_manager
 
 
 def create_mock_catalog(fp: str = "fp_auth_test") -> SchemaCatalog:
@@ -260,8 +260,8 @@ def test_database_context_in_worker_cache_rehydration(tmp_path, monkeypatch):
     """Verify DatabaseContext behaves as an in-worker cache and rehydrates when store version advances."""
     db_file = tmp_path / "test_worker_cache.db"
     store = SystemStore(db_url_or_path=f"sqlite:///{db_file}")
-    monkeypatch.setattr("app.database.system_store.system_store", store)
-    monkeypatch.setattr("app.schema_catalog.catalog_builder.system_store", store)
+    monkeypatch.setattr("app.services.database.system_store.system_store", store)
+    monkeypatch.setattr("app.models.schema_catalog.catalog_builder.system_store", store)
 
     fp = "fp_cache_rehydrate_test"
     catalog_v1 = create_mock_catalog(fp=fp)

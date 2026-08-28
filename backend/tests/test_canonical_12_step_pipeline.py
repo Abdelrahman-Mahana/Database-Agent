@@ -1,10 +1,10 @@
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
-from app.sql.result_verifier import ResultVerifier, ResultVerificationOutcome
-from app.semantic.models import QueryUnderstanding, ExecutionRoute, OutputFormat
+from app.services.sql.result_verifier import ResultVerifier, ResultVerificationOutcome
+from app.agent.semantic.models import QueryUnderstanding, ExecutionRoute, OutputFormat
 from app.utils.text_processor import AnalysisType
-from app.agents.analyst_agent import AnalystAgent
-from app.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
+from app.agent.orchestration.analyst_agent import AnalystAgent
+from app.models.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
 
 
 def test_result_verifier_scalar_cardinality():
@@ -138,7 +138,14 @@ async def test_analyst_agent_12_step_execution_and_evaluation_trace():
 
     sample_rows = [{"total_sales": 15000}]
 
-    with patch.object(agent.sql_generator, "generate_sql", new_callable=AsyncMock) as mock_gen_sql, \
+    mock_ctx = MagicMock()
+    mock_ctx.schema = {"sales": {"columns": [{"name": "amount", "type": "float"}]}}
+    mock_ctx.catalog = None
+    mock_ctx.total_tables = 1
+    mock_ctx.total_columns = 1
+
+    with patch.object(agent.schema_service, "get_database_context", return_value=mock_ctx), \
+         patch.object(agent.sql_generator, "generate_sql", new_callable=AsyncMock) as mock_gen_sql, \
          patch.object(agent.sql_generator, "execute_with_repair", new_callable=AsyncMock) as mock_exec, \
          patch.object(agent.report_service, "generate_report_and_chart", new_callable=AsyncMock) as mock_report:
 

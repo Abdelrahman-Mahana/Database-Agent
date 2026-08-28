@@ -1,71 +1,102 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { Search, Bell, User, Moon, Sun } from "lucide-react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
+import { apiClient } from "@/services/api";
 import { useAppStore } from "@/store/useAppStore";
-import { useEffect } from "react";
+import { SchemaResponse } from "@/types/api";
+import { 
+  Database, 
+  Terminal, 
+  Settings, 
+  Activity,
+  History,
+  Radio,
+  FileCode,
+  LineChart
+} from "lucide-react";
 
 export function Header() {
-  const router = useRouter();
-  const { theme, toggleTheme } = useAppStore();
-  const [searchQuery, setSearchQuery] = useState("");
+  const pathname = usePathname();
+  const { activeDatabase } = useAppStore();
 
-  useEffect(() => {
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, [theme]);
+  const { data: schema } = useQuery<SchemaResponse>({
+    queryKey: ['schema', activeDatabase],
+    queryFn: async () => {
+      try {
+        const res = await apiClient.get('/schema');
+        return res.data;
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 60000,
+  });
 
-  const handleSearchSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (searchQuery.trim()) {
-      const prompt = encodeURIComponent(searchQuery.trim());
-      router.push(`/chat?prompt=${prompt}`);
-      setSearchQuery("");
-    }
-  };
+  const dbName = schema?.database_name || activeDatabase || "Not Connected";
+  const dbType = schema?.database_type || "SQL";
+
+  const navigation = [
+    { name: "Dashboard", href: "/", icon: Activity },
+    { name: "Explorer", href: "/explorer", icon: Database },
+    { name: "Chat Analyst", href: "/chat", icon: Terminal },
+    { name: "Analytics & Profiling", href: "/analytics", icon: LineChart },
+    { name: "Execution", href: "/execution", icon: FileCode },
+    { name: "Connect", href: "/connect", icon: Radio },
+    { name: "History", href: "/history", icon: History },
+    { name: "Settings", href: "/settings", icon: Settings },
+  ];
 
   return (
-    <header className="flex h-16 shrink-0 items-center justify-between border-b bg-card px-6">
-      <div className="flex items-center gap-4 flex-1">
-        <form onSubmit={handleSearchSubmit} className="relative w-96">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <input
-            type="search"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search schemas, queries, or ask AI..."
-            className="h-9 w-full rounded-md border border-input bg-transparent pl-9 pr-4 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          />
-        </form>
-      </div>
-      
-      <div className="flex items-center gap-4">
-        <button 
-          onClick={toggleTheme}
-          className="rounded-full p-2 hover:bg-accent text-muted-foreground transition-colors"
-          title="Toggle Theme"
-        >
-          {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-        </button>
-        <button 
-          onClick={() => router.push('/history')}
-          className="rounded-full p-2 hover:bg-accent text-muted-foreground transition-colors relative"
-          title="Notifications & Activity"
-        >
-          <Bell className="h-4 w-4" />
-          <span className="absolute top-1.5 right-2 h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-        </button>
-        <button 
-          onClick={() => router.push('/settings')}
-          className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-secondary-foreground hover:bg-primary/20 transition-colors"
-          title="User Profile & Preferences"
-        >
-          <User className="h-4 w-4" />
-        </button>
+    <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="container flex h-14 max-w-screen-2xl items-center justify-between px-4">
+        <div className="flex items-center gap-6">
+          <Link href="/" className="flex items-center space-x-2">
+            <Database className="h-6 w-6 text-primary animate-pulse" />
+            <span className="font-bold text-lg bg-gradient-to-r from-primary to-blue-500 bg-clip-text text-transparent">
+              DB Agent
+            </span>
+          </Link>
+
+          <nav className="flex items-center gap-1 sm:gap-2">
+            {navigation.map((item) => {
+              const Icon = item.icon;
+              const isActive = pathname === item.href;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                    isActive
+                      ? "bg-primary/10 text-primary font-semibold"
+                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  <span className="hidden md:inline">{item.name}</span>
+                </Link>
+              );
+            })}
+          </nav>
+        </div>
+
+        {/* Live Active Database Status Badge */}
+        <div className="flex items-center gap-2">
+          <Link
+            href="/connect"
+            className="flex items-center gap-2 px-2.5 py-1 rounded-full border border-border/60 bg-muted/30 hover:bg-muted/60 transition-colors text-xs"
+            title="Click to switch database connection"
+          >
+            <span className={`h-2 w-2 rounded-full ${schema ? "bg-emerald-400 animate-pulse" : "bg-amber-400"}`} />
+            <span className="font-mono font-medium text-foreground truncate max-w-[120px] sm:max-w-[200px]">
+              {dbName}
+            </span>
+            <span className="text-[10px] uppercase font-mono px-1.5 py-0.2 rounded bg-muted text-muted-foreground hidden sm:inline">
+              {dbType}
+            </span>
+          </Link>
+        </div>
       </div>
     </header>
   );

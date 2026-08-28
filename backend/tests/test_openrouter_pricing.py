@@ -1,6 +1,6 @@
 import asyncio
 
-from app.llm.model import OpenRouterClient
+from app.agent.llm.model import OpenRouterClient
 
 
 def test_openrouter_pricing_lookup_is_local(monkeypatch):
@@ -10,7 +10,7 @@ def test_openrouter_pricing_lookup_is_local(monkeypatch):
     async def fail_refresh():
         raise AssertionError("workflow pricing lookup must not use the network")
 
-    monkeypatch.setattr("app.llm.model.refresh_openrouter_pricing", fail_refresh)
+    monkeypatch.setattr("app.agent.llm.model.refresh_openrouter_pricing", fail_refresh)
     pricing = asyncio.run(client.get_pricing())
 
     assert pricing == {"prompt": 0.075, "completion": 0.30}

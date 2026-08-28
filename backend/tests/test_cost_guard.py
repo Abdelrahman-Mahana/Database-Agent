@@ -2,7 +2,7 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-from app.security.cost_guard import (
+from app.core.security.cost_guard import (
     check_query_cost,
     CostCheckResult,
     cost_guard_failure_result,
@@ -10,8 +10,8 @@ from app.security.cost_guard import (
     _analyze_query_ast,
     estimate_db_cost,
 )
-from app.config.settings import settings
-from app.schema_catalog.models import SchemaCatalog, TableProfile
+from app.core.config.settings import settings
+from app.models.schema_catalog.models import SchemaCatalog, TableProfile
 from app.services.sql_service import SQLExecutor
 
 

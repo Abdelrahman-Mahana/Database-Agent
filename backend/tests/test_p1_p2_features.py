@@ -1,12 +1,12 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from app.schema_intelligence.semantic_classifier import infer_semantic_type, SemanticType
-from app.semantic.ambiguity_resolver import AmbiguityResolver
+from app.agent.schema_intelligence.semantic_classifier import infer_semantic_type, SemanticType
+from app.agent.semantic.ambiguity_resolver import AmbiguityResolver
 from app.services.query_explain_service import QueryExplainService
 from app.services.template_service import TemplateService, QueryTemplate
 from app.services.feedback_service import FeedbackService
-from app.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
+from app.models.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
 
 
 def test_semantic_data_types_classification():
@@ -102,7 +102,7 @@ def test_template_service_render_and_execute():
 
 def test_feedback_service_updates_catalog_synonyms(tmp_path, monkeypatch):
     """Verify FeedbackService updates catalog synonyms and persists changes to disk."""
-    monkeypatch.setattr("app.schema_catalog.catalog_builder.CATALOG_DIR", tmp_path)
+    monkeypatch.setattr("app.models.schema_catalog.catalog_builder.CATALOG_DIR", tmp_path)
 
     catalog = SchemaCatalog(
         fingerprint="feedback_test_fp",

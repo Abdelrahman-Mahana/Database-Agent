@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
-from app.database.system_store import SystemStore
-from app.jobs.durable_queue import DurableJobQueue
+from app.services.database.system_store import SystemStore
+from app.services.jobs.durable_queue import DurableJobQueue
 
 
 @pytest.fixture
@@ -52,7 +52,7 @@ async def test_durable_job_queue_stage_transitions(memory_store):
     mock_catalog.glossary_enriched = True
     mock_catalog.embeddings_built = True
 
-    with patch("app.jobs.durable_queue.CatalogBuilder") as mock_cb_cls:
+    with patch("app.services.jobs.durable_queue.CatalogBuilder") as mock_cb_cls:
         mock_builder = MagicMock()
         mock_builder.get_or_build.return_value = mock_catalog
         mock_builder.build_async = AsyncMock()
@@ -82,7 +82,7 @@ async def test_durable_job_queue_error_handling(memory_store):
         stage="queued",
     )
 
-    with patch("app.jobs.durable_queue.CatalogBuilder") as mock_cb_cls:
+    with patch("app.services.jobs.durable_queue.CatalogBuilder") as mock_cb_cls:
         mock_cb_cls.side_effect = RuntimeError("Database connection lost")
 
         await queue.run_onboarding_job("job_err_01")

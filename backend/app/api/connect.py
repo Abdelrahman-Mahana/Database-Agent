@@ -5,8 +5,8 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from app.database.db import set_database_url
-from app.schemas.chat import (
+from app.services.database.db import set_database_url
+from app.models.schemas.chat import (
     ConnectionConfigRequest,
     ConnectionValidationResponse,
     SchemaResponse,
@@ -14,7 +14,7 @@ from app.schemas.chat import (
 from app.services.connection_manager import connection_manager
 from app.services.memory import memory_manager
 from app.services.sql_service import SchemaService
-from app.jobs.durable_queue import get_durable_job_queue
+from app.services.jobs.durable_queue import get_durable_job_queue
 from app.utils.cache import clear_all_caches
 
 router = APIRouter(prefix="/connect", tags=["connect"])
@@ -32,7 +32,7 @@ def _get_backend_dir() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-from app.database.db import current_session_id
+from app.services.database.db import current_session_id
 
 def _reset_and_get_schema_service(engine) -> SchemaService:
     # Memory should be isolated by tenant; do not wipe other users' sessions.

@@ -2,8 +2,8 @@ import pytest
 import httpx
 from unittest.mock import AsyncMock, patch, MagicMock
 from app.services.report_service import ReportService
-from app.semantic.hybrid import HybridQueryUnderstander
-from app.llm.model import _post_with_retry
+from app.agent.semantic.hybrid import HybridQueryUnderstander
+from app.agent.llm.model import _post_with_retry
 
 
 @pytest.mark.asyncio
@@ -138,7 +138,7 @@ async def test_deterministic_report_scalar_and_lookup():
 @pytest.mark.asyncio
 async def test_complex_analysis_attempts_single_sql_first():
     """Verify comparison/trend queries attempt single-pass SQL first, bypassing Planner."""
-    from app.agents.analyst_agent import AnalystAgent
+    from app.agent.orchestration.analyst_agent import AnalystAgent
 
     agent = AnalystAgent()
     mock_db = MagicMock()
@@ -150,18 +150,24 @@ async def test_complex_analysis_attempts_single_sql_first():
          patch.object(agent.report_service, "generate_report_and_chart", new_callable=AsyncMock) as mock_rep:
 
         mock_ctx = MagicMock()
-        mock_ctx.schema = {"orders": {"columns": [{"name": "id", "type": "int"}, {"name": "total", "type": "float"}]}}
+        mock_ctx.schema = {"orders": {"columns": [{"name": "region", "type": "varchar"}, {"name": "total", "type": "float"}]}}
         mock_ctx.catalog = None
         mock_ctx.total_tables = 1
         mock_ctx.total_columns = 2
         mock_get_ctx.return_value = mock_ctx
 
-        mock_gen_sql.return_value = "SELECT sum(total) FROM orders"
-        mock_exec.return_value = ([{"sum": 1000.0}], "SELECT sum(total) FROM orders", None, None, [])
-        mock_rep.return_value = ("Total is 1000", {})
+        mock_gen_sql.return_value = "SELECT region, sum(total) FROM orders GROUP BY region"
+        mock_exec.return_value = (
+            [{"region": "North", "sum": 500.0}, {"region": "South", "sum": 500.0}],
+            "SELECT region, sum(total) FROM orders GROUP BY region",
+            None,
+            None,
+            [],
+        )
+        mock_rep.return_value = ("Comparison by region is complete.", {})
 
-        with patch("app.agents.analyst_agent.Planner") as mock_planner_cls:
-            res = await agent.ask("Compare 2023 vs 2024 orders revenue", db=mock_db)
+        with patch("app.agent.orchestration.analyst_agent.Planner") as mock_planner_cls:
+            res = await agent.ask("Compare orders total across regions", db=mock_db)
 
             assert res["success"] is True
             assert mock_gen_sql.call_count == 1
@@ -171,8 +177,8 @@ async def test_complex_analysis_attempts_single_sql_first():
 
 @pytest.mark.asyncio
 async def test_langgraph_orchestrator_single_sql_path():
-    from app.agents.analyst_agent import AnalystAgent
-    from app.config.settings import settings
+    from app.agent.orchestration.analyst_agent import AnalystAgent
+    from app.core.config.settings import settings
 
     agent = AnalystAgent()
     mock_db = MagicMock()
@@ -201,15 +207,15 @@ async def test_langgraph_orchestrator_single_sql_path():
 
 @pytest.mark.asyncio
 async def test_langgraph_failure_does_not_fallback_to_service_pipeline():
-    from app.agents.analyst_agent import AnalystAgent
-    from app.config.settings import settings
+    from app.agent.orchestration.analyst_agent import AnalystAgent
+    from app.core.config.settings import settings
 
     agent = AnalystAgent()
     mock_db = MagicMock()
 
     with patch.object(agent.schema_service, "get_database_context") as mock_get_ctx, \
          patch.object(agent.sql_generator, "generate_sql", new_callable=AsyncMock) as mock_gen_sql, \
-         patch("app.agents.graph_orchestrator.run_graph_ask", new_callable=AsyncMock) as mock_graph:
+         patch("app.agent.orchestration.graph_orchestrator.run_graph_ask", new_callable=AsyncMock) as mock_graph:
 
         mock_ctx = MagicMock()
         mock_ctx.schema = {"users": {"columns": [{"name": "id", "type": "int"}]}}
@@ -228,9 +234,9 @@ async def test_langgraph_failure_does_not_fallback_to_service_pipeline():
 
 @pytest.mark.asyncio
 async def test_langgraph_blocks_unknown_column_before_execution():
-    from app.agents.analyst_agent import AnalystAgent
-    from app.config.settings import settings
-    from app.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
+    from app.agent.orchestration.analyst_agent import AnalystAgent
+    from app.core.config.settings import settings
+    from app.models.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
 
     agent = AnalystAgent()
     mock_db = MagicMock()

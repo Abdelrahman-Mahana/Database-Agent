@@ -6,26 +6,18 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/services/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { 
   Settings as SettingsIcon, 
-  Globe, 
   Languages, 
-  Sparkles, 
-  BarChart2, 
   ShieldCheck, 
   Save, 
   Check, 
-  Sliders, 
   Eye, 
-  Clock,
-  RotateCcw,
-  Database,
-  RefreshCw,
-  Play,
-  MessageSquare,
+  RotateCcw, 
+  RefreshCw, 
+  Play, 
   Bot
 } from "lucide-react";
 

@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from cryptography.fernet import Fernet
 from pydantic import BaseModel
 from sqlalchemy import create_engine, inspect, text
-from app.config.settings import settings
+from app.core.config.settings import settings
 
 
 def _get_fernet_key() -> bytes:

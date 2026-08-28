@@ -8,8 +8,8 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 from loguru import logger
 
-from app.schema_catalog.models import SchemaCatalog
-from app.schema_catalog.catalog_builder import CatalogBuilder
+from app.models.schema_catalog.models import SchemaCatalog
+from app.models.schema_catalog.catalog_builder import CatalogBuilder
 
 
 class FeedbackService:
@@ -89,7 +89,7 @@ class FeedbackService:
         user_id: Optional[str] = None,
     ) -> dict[str, Any]:
         """Record user feedback or correction on a generated answer claim."""
-        from app.database.system_store import system_store
+        from app.services.database.system_store import system_store
         result = system_store.record_claim_feedback(
             claim_id=claim_id,
             statement=statement,
@@ -107,7 +107,7 @@ class FeedbackService:
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         """Retrieve feedback history for claims."""
-        from app.database.system_store import system_store
+        from app.services.database.system_store import system_store
         return system_store.get_claim_feedback(claim_id=claim_id, limit=limit)
 
 

@@ -17,7 +17,6 @@ import {
   Trash2, 
   Copy, 
   Check, 
-  Code, 
   Plus, 
   Sparkles,
   Sliders,
@@ -80,7 +79,7 @@ export default function HistoryPage() {
       try {
         const res = await apiClient.get('/chat/history?session_id=default_session');
         return res.data?.turns || [];
-      } catch (e) {
+      } catch {
         return [];
       }
     },

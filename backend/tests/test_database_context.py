@@ -2,7 +2,7 @@ import time
 import pytest
 from sqlalchemy import create_engine
 
-from app.database.context import (
+from app.services.database.context import (
     DatabaseContext,
     DatabaseContextManager,
     compute_db_fingerprint,
@@ -82,7 +82,7 @@ def test_schema_service_database_context_integration():
 
     # Clear RAM and persistent cache first
     db_context_manager.invalidate(fp)
-    from app.database.system_store import system_store
+    from app.services.database.system_store import system_store
     system_store.clear_schema_cache()
 
     # First call: populates DatabaseContext in RAM
@@ -144,8 +144,8 @@ def test_prebuilt_indexes_and_fast_matching():
 
 
 def test_tfidf_and_faiss_in_ram_caching():
-    from app.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
-    from app.schema_catalog.embedding_retrieval import _FAISS_RAM_CACHE, clear_faiss_ram_cache
+    from app.models.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
+    from app.models.schema_catalog.embedding_retrieval import _FAISS_RAM_CACHE, clear_faiss_ram_cache
 
     clear_faiss_ram_cache()
 
@@ -183,7 +183,7 @@ def test_tfidf_and_faiss_in_ram_caching():
 
 def test_cold_start_local_store_cache_loading_without_recursion(monkeypatch):
     """Verify that loading from SQLite system store on cold start does not cause recursion errors."""
-    from app.database.system_store import system_store
+    from app.services.database.system_store import system_store
     from app.services.sql_service import SchemaCacheEntry
 
     engine = create_engine("sqlite:///:memory:")

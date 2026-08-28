@@ -1,10 +1,10 @@
 "use client";
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any, react-hooks/set-state-in-effect */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, Suspense } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { apiClient } from "@/services/api";
 import { SchemaResponse, BaseDBObject } from "@/types/api";
 import { useAppStore } from "@/store/useAppStore";
@@ -21,22 +21,30 @@ import {
   Link as LinkIcon, 
   RotateCw, 
   Zap, 
-  Layers, 
-  FileCode2,
-  ChevronRight
+  Layers
 } from "lucide-react";
 
-export default function DatabaseExplorer() {
+function DatabaseExplorerContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialSelected = searchParams.get("selected") || null;
+
   const queryClient = useQueryClient();
   const { activeDatabase } = useAppStore();
   
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedObjectName, setSelectedObjectName] = useState<string | null>(null);
+  const [selectedObjectName, setSelectedObjectName] = useState<string | null>(initialSelected);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  // Sync with searchParams if it changes
+  useEffect(() => {
+    if (initialSelected) {
+      setSelectedObjectName(initialSelected);
+    }
+  }, [initialSelected]);
+
   // Fetch schema data
-  const { data: schemaData, isLoading, isError, refetch } = useQuery<SchemaResponse>({
+  const { data: schemaData, isLoading, isError } = useQuery<SchemaResponse>({
     queryKey: ["schema", activeDatabase],
     queryFn: async () => {
       const res = await apiClient.get("/schema");
@@ -98,12 +106,12 @@ export default function DatabaseExplorer() {
     return allObjects[0];
   }, [allObjects, selectedObjectName]);
 
-  const handleSelectObject = (objectName: string, _objectType: string) => {
+  const handleSelectObject = (objectName: string) => {
     setSelectedObjectName(objectName);
   };
 
   const handleAskAI = (tableName: string) => {
-    const prompt = encodeURIComponent(`Summarize structure and query examples from ${tableName}`);
+    const prompt = encodeURIComponent(`Explain table ${tableName}: summarize its purpose, key columns and relationships, and show 3 practical SQL query examples with explanations.`);
     router.push(`/chat?prompt=${prompt}`);
   };
 
@@ -285,5 +293,13 @@ export default function DatabaseExplorer() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function DatabaseExplorer() {
+  return (
+    <Suspense fallback={<div className="p-6 text-muted-foreground">Loading Database Explorer...</div>}>
+      <DatabaseExplorerContent />
+    </Suspense>
   );
 }

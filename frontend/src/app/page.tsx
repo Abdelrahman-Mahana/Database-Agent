@@ -20,19 +20,15 @@ import {
   Search, 
   Key, 
   Link as LinkIcon, 
-  Activity, 
   Zap, 
   Sparkles, 
   ArrowRight, 
-  ShieldCheck, 
   Play, 
   Layers, 
   BarChart3, 
   CheckCircle2, 
   ExternalLink,
-  ChevronRight,
-  Hash,
-  FileText
+  Hash
 } from "lucide-react";
 import { 
   ResponsiveContainer, 
@@ -50,7 +46,7 @@ export default function Dashboard() {
   const [schemaSearch, setSchemaSearch] = useState("");
 
   // Fetch schema metadata
-  const { data: schema, isLoading: isSchemaLoading } = useQuery<SchemaResponse>({
+  const { data: schema } = useQuery<SchemaResponse>({
     queryKey: ['schema', activeDatabase],
     queryFn: async () => {
       const res = await apiClient.get('/schema');
@@ -65,7 +61,7 @@ export default function Dashboard() {
       try {
         const res = await apiClient.get('/health');
         return res.data;
-      } catch (e) {
+      } catch {
         return null;
       }
     },
@@ -121,7 +117,6 @@ export default function Dashboard() {
   const summary = schema?.summary;
   const tablesCount = summary?.tables ?? schema?.tables?.length ?? allObjects.filter((o) => o.object_type === 'table').length;
   const viewsCount = summary?.views ?? schema?.views?.length ?? allObjects.filter((o) => o.object_type === 'view').length;
-  const proceduresCount = summary?.procedures ?? schema?.procedures?.length ?? allObjects.filter((o) => o.object_type === 'procedure').length;
   const collectionsCount = summary?.collections ?? schema?.collections?.length ?? allObjects.filter((o) => o.object_type === 'collection').length;
 
   const totalColumns = summary?.columns ?? allObjects.reduce((acc, obj) => acc + (obj.columns?.length || 0), 0);
@@ -346,7 +341,7 @@ export default function Dashboard() {
                       </Button>
                       <Button
                         size="sm"
-                        onClick={() => handleLaunchChat(`Summarize structure and query examples from ${obj.name}`)}
+                        onClick={() => handleLaunchChat(`Explain table ${obj.name}: summarize its purpose, key columns and relationships, and show 3 practical SQL query examples with explanations.`)}
                         className="gap-1.5 text-xs bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-600 hover:to-indigo-700 text-white"
                       >
                         <Sparkles className="h-3 w-3" />

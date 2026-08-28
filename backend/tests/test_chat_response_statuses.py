@@ -1,4 +1,4 @@
-from app.schemas.chat import apply_chat_statuses
+from app.models.schemas.chat import apply_chat_statuses
 
 
 def test_answered_status_is_distinct_from_request_completion():
