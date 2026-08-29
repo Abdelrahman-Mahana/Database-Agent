@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from app.agent.orchestration.analyst_agent import AnalystAgent
 from app.core.config.settings import settings
 from app.agent.semantic.models import ExecutionRoute, IntentType, QueryUnderstanding
-from app.utils.text_processor import AnalysisType
+from app.utils.helpers import AnalysisType
 
 
 @pytest.mark.asyncio

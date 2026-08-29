@@ -11,7 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.agent.orchestration.sql_generator import SQLGenerator
-from app.agent.semantic.contract import (
+from app.agent.semantic.models import (
     SemanticContract,
     SemanticGrain,
     GrainType,

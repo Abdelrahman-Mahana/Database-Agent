@@ -10,7 +10,7 @@ Verifies deep AST semantic correctness rules:
 import pytest
 from app.services.sql.semantic_validator import SQLMeaningValidator
 from app.services.sql.validator import SQLValidator
-from app.agent.semantic.contract import (
+from app.agent.semantic.models import (
     SemanticContract,
     SemanticGrain,
     GrainType,

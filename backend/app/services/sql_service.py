@@ -1458,7 +1458,7 @@ class SQLExecutor:
         from loguru import logger
         from sqlalchemy import text
         from sqlalchemy.exc import SQLAlchemyError
-        from app.utils.validator import get_target_dialect
+        from app.utils.helpers import get_target_dialect
 
         clean_query = query.strip().rstrip(";")
         if not clean_query:

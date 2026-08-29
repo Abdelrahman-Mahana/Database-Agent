@@ -608,10 +608,10 @@ export default function ExecutionDetailsPage() {
             <CardHeader>
               <CardTitle className="text-lg font-bold flex items-center gap-2">
                 <Sparkles className="h-5 w-5 text-primary" />
-                8-Step LangGraph Agent Architecture
+                10-Step Adaptive Agent Architecture
               </CardTitle>
               <CardDescription>
-                Visual step-by-step trace of how natural language prompts are validated, grounded in schema, executed, and synthesized into executive reports.
+                Visual step-by-step trace of how natural language prompts are decomposed into plans, grounded, safely executed, and synthesized into executive reports.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -619,57 +619,71 @@ export default function ExecutionDetailsPage() {
                 {[
                   {
                     step: "1",
-                    name: "Semantic Router & Intent Parsing",
-                    desc: "Classifies intents and extracts target metrics, grouping dimensions, temporal bounds, and filters from English/Arabic prompts.",
+                    name: "Semantic Understanding",
+                    desc: "Classifies intents and extracts target metrics, grouping dimensions, temporal bounds, and filters from prompts.",
                     badge: "Bilingual NLP",
                     color: "text-sky-400 bg-sky-500/10 border-sky-500/20"
                   },
                   {
                     step: "2",
-                    name: "Schema Grounding",
-                    desc: "Identifies relevant tables and columns, expanding join relationships while pruning irrelevant data to minimize context window overhead.",
-                    badge: "Graph Routing",
+                    name: "Analysis Planning",
+                    desc: "Decomposes complex requests into multi-step investigation plans with defined query tasks and metrics.",
+                    badge: "Planner",
                     color: "text-indigo-400 bg-indigo-500/10 border-indigo-500/20"
                   },
                   {
                     step: "3",
-                    name: "SQL Generator",
-                    desc: "Generates dialect-specific SQL candidates (PostgreSQL/SQLite/MySQL) using advanced self-consistency voting and reasoning.",
-                    badge: "AST Verified",
-                    color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+                    name: "Adaptive Schema Grounding",
+                    desc: "Identifies relevant tables and columns based on the plan, expanding join relationships safely.",
+                    badge: "Graph Routing",
+                    color: "text-indigo-400 bg-indigo-500/10 border-indigo-500/20"
                   },
                   {
                     step: "4",
-                    name: "Cost & Safety Guard",
-                    desc: "Validates AST to enforce read-only execution, prevent full-table scans, limit output rows, and mask PII data.",
+                    name: "Task Selection",
+                    desc: "Prioritizes and selects the next sub-query task based on previous investigation results.",
+                    badge: "Adaptive Loop",
+                    color: "text-indigo-400 bg-indigo-500/10 border-indigo-500/20"
+                  },
+                  {
+                    step: "5",
+                    name: "SQL Generation",
+                    desc: "Generates dialect-specific SQL candidates using advanced self-consistency voting and reasoning.",
+                    badge: "LLM Gen",
+                    color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+                  },
+                  {
+                    step: "6",
+                    name: "Semantic & AST Validation",
+                    desc: "Validates AST to ensure identifiers match the schema, joins are valid, and semantic alignment is correct.",
+                    badge: "Validation",
+                    color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+                  },
+                  {
+                    step: "7",
+                    name: "Cost Guard",
+                    desc: "Prevents full-table scans, limits output rows, and aborts overly expensive operations.",
                     badge: "Safety Guard",
                     color: "text-rose-400 bg-rose-500/10 border-rose-500/20"
                   },
                   {
-                    step: "5",
-                    name: "Database Execution",
-                    desc: "Executes the validated query against the live database within strict timeout limits and resource constraints.",
-                    badge: "Execution",
-                    color: "text-blue-400 bg-blue-500/10 border-blue-500/20"
-                  },
-                  {
-                    step: "6",
-                    name: "Auto-Repair Loop",
-                    desc: "Detects execution failures or syntax errors, routing back to the SQL Generator with precise error logs for self-correction.",
+                    step: "8",
+                    name: "Adaptive Execution & Repair",
+                    desc: "Executes the query and uses detailed error logs to self-correct syntax or logic failures on the fly.",
                     badge: "Self-Healing",
                     color: "text-amber-400 bg-amber-500/10 border-amber-500/20"
                   },
                   {
-                    step: "7",
+                    step: "9",
                     name: "Statistical Analytics Engine",
-                    desc: "Runs deterministic analytics (trends, outliers, distributions, aggregations) on the raw result grid to extract deep insights.",
+                    desc: "Runs deterministic analytics (trends, outliers, distributions, aggregations) on the aggregated raw result grids.",
                     badge: "Analytics",
                     color: "text-purple-400 bg-purple-500/10 border-purple-500/20"
                   },
                   {
-                    step: "8",
+                    step: "10",
                     name: "Report Synthesizer",
-                    desc: "Composes an executive, ChatGPT-style analytical report strictly grounded in facts, with dynamic charts and Markdown formatting.",
+                    desc: "Composes an executive analytical report strictly grounded in facts, with dynamic charts and insights.",
                     badge: "Report Writer",
                     color: "text-primary bg-primary/10 border-primary/20"
                   }

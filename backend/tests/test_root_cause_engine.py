@@ -10,8 +10,8 @@ Verifies the full Root Cause Investigation Pipeline:
 7. Generating verified mathematical evidence
 """
 import pytest
-from app.services.analysis.engines.root_cause import RootCauseEngine
-from app.services.analysis.analyzers.root_cause import RootCauseAnalyzer
+from app.services.analysis.engines import RootCauseEngine
+from app.services.analysis.analyzers import RootCauseAnalyzer
 from app.agent.semantic.query_spec_builder import QuerySpecBuilder
 
 

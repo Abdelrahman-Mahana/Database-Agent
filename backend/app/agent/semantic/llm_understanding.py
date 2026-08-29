@@ -31,7 +31,7 @@ from app.agent.semantic.models import (
     AnalysisOperation,
     infer_analysis_profile,
 )
-from app.utils.text_processor import AnalysisType, extract_json_text
+from app.utils.helpers import AnalysisType, extract_json_text
 from app.core.config.settings import settings
 
 _VALID_ANALYSIS_TYPES = {t.value for t in AnalysisType}

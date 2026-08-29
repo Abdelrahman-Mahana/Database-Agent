@@ -3,7 +3,7 @@ import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 
 from app.agent.semantic.models import QueryUnderstanding, ExecutionRoute, IntentType
-from app.utils.text_processor import AnalysisType
+from app.utils.helpers import AnalysisType
 from app.agent.semantic.query_spec_builder import QuerySpecBuilder
 from app.agent.orchestration.intent_classifier import IntentClassifier
 from app.agent.semantic.hybrid import HybridQueryUnderstander

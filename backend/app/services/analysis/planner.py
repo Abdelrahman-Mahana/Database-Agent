@@ -14,7 +14,7 @@ from app.services.analysis.models import (
 )
 from app.services.analysis.registry import AnalysisStrategyRegistry
 from app.agent.semantic.models import AnalysisLevel, AnalysisOperation, QuerySpec
-from app.utils.text_processor import AnalysisType, extract_json_text
+from app.utils.helpers import AnalysisType, extract_json_text
 
 logger = logging.getLogger(__name__)
 

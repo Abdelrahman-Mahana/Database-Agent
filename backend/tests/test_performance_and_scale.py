@@ -7,7 +7,7 @@ from app.models.schema_catalog.catalog_builder import CatalogBuilder
 from app.models.schema_catalog.retrieval import retrieve_relevant_tables
 from app.agent.schema_grounding.grounding_engine import SchemaGroundingEngine
 from app.agent.semantic.models import QueryUnderstanding, ExecutionRoute, OutputFormat
-from app.utils.text_processor import AnalysisType
+from app.utils.helpers import AnalysisType
 
 
 def generate_enterprise_schema_catalog(num_tables: int = 1500) -> SchemaCatalog:

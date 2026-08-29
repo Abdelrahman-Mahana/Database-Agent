@@ -1,6 +1,6 @@
 """Tests for Trend Analysis Engine."""
 import pytest
-from app.services.analysis.engines.trend import TrendEngine
+from app.services.analysis.engines import TrendEngine
 
 
 def test_trend_engine_monthly_upward():

@@ -18,9 +18,9 @@ from typing import Any, Optional, TypedDict
 from loguru import logger
 from langgraph.graph import StateGraph, END
 
-from app.utils.validator import validate_sql
-from app.utils.text_processor import build_result_summary, COMPLEX_ANALYSIS_TYPES
-from app.agent.semantic.synonyms import resolve_synonyms
+from app.utils.helpers import validate_sql
+from app.utils.helpers import build_result_summary, COMPLEX_ANALYSIS_TYPES
+from app.agent.semantic.resolvers import resolve_synonyms
 from app.utils.cost_router import should_use_self_consistency, choose_sql_generation_tier
 from app.core.config.settings import settings
 from app.agent.schema_grounding.confidence import grounding_confidence

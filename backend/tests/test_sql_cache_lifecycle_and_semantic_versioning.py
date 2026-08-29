@@ -10,7 +10,7 @@ from app.utils.cache import (
     get_cached_results,
     set_cached_results,
 )
-from app.utils.text_processor import normalize_sql
+from app.utils.helpers import normalize_sql
 from app.models.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
 
 

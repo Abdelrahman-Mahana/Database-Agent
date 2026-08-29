@@ -1,6 +1,6 @@
 """Tests for Correlation Analysis Engine."""
 import pytest
-from app.services.analysis.engines.correlation import CorrelationEngine
+from app.services.analysis.engines import CorrelationEngine
 
 
 def test_positive_correlation_engine():

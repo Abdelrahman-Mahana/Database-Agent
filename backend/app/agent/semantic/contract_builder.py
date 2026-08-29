@@ -9,13 +9,13 @@ import re
 from typing import Any, Dict, List, Optional
 from loguru import logger
 
-from app.agent.semantic.contract import (
+from app.agent.semantic.models import (
     SemanticContract, SemanticGrain, GrainType, MetricSpec, DimensionSpec,
     TimeSpec, FilterSpec, SortSpec, FormulaType, FilterOperator,
 )
-from app.agent.semantic.metric_registry import business_metric_registry
-from app.agent.semantic.time_resolver import time_resolver
-from app.agent.semantic.filter_resolver import filter_resolver
+from app.agent.semantic.models import business_metric_registry
+from app.agent.semantic.resolvers import time_resolver
+from app.agent.semantic.resolvers import filter_resolver
 
 
 class SemanticContractBuilder:

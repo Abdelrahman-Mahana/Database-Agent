@@ -1,7 +1,7 @@
 """Tests for Enterprise Business Metric Registry and Semantic Decoupling."""
 import pytest
-from app.agent.semantic.contract import FormulaType
-from app.agent.semantic.metric_registry import BusinessMetricRegistry, BusinessMetricDefinition, business_metric_registry
+from app.agent.semantic.models import FormulaType
+from app.agent.semantic.models import BusinessMetricRegistry, BusinessMetricDefinition, business_metric_registry
 from app.agent.semantic.query_spec_builder import QuerySpecBuilder
 from app.services.sql.prompt_builder import SQLPromptBuilder
 from app.services.database.context import DatabaseContext

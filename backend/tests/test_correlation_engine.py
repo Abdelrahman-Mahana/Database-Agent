@@ -9,8 +9,8 @@ Verifies the 6 steps:
 6. Explain limitations (causality disclaimers, linear association caveats, sample size)
 """
 import pytest
-from app.services.analysis.engines.correlation import CorrelationEngine
-from app.services.analysis.analyzers.correlation import CorrelationAnalyzer
+from app.services.analysis.engines import CorrelationEngine
+from app.services.analysis.analyzers import CorrelationAnalyzer
 from app.services.analysis.models import AnalysisTask
 from app.agent.semantic.models import AnalysisOperation, QuerySpec
 from app.agent.semantic.query_spec_builder import QuerySpecBuilder

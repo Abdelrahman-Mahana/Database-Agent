@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.services.evaluation.evaluator import AgentEvaluator
 from app.services.evaluation.models import EvaluationMetrics, StageLatency
-from app.services.evaluation.scoring import EvaluationScorer
+from app.services.evaluation.metrics import EvaluationScorer
 from app.agent.orchestration.analyst_agent import AnalystAgent
 
 

@@ -10,7 +10,7 @@ from app.agent.semantic.models import (
     AnalysisOperation,
     infer_analysis_profile,
 )
-from app.agent.semantic.contract import (
+from app.agent.semantic.models import (
     SemanticContract,
     SemanticGrain,
     GrainType,
@@ -21,10 +21,14 @@ from app.agent.semantic.contract import (
     SortSpec,
     FormulaType,
     FilterOperator,
+    business_metric_registry,
+    BusinessMetricRegistry
 )
-from app.agent.semantic.metric_registry import business_metric_registry, BusinessMetricRegistry
-from app.agent.semantic.time_resolver import time_resolver, TimeResolver
-from app.agent.semantic.filter_resolver import filter_resolver, FilterResolver
+from app.agent.semantic.resolvers import (
+    time_resolver, TimeResolver,
+    filter_resolver, FilterResolver,
+    ambiguity_resolver, AmbiguityResolver
+)
 from app.agent.semantic.contract_builder import semantic_contract_builder, SemanticContractBuilder
 from app.agent.semantic.grounding_gate import schema_grounding_gate, SchemaGroundingGate
 from app.agent.semantic.parser import SemanticQueryParser

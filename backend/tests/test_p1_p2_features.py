@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from app.agent.schema_intelligence.semantic_classifier import infer_semantic_type, SemanticType
-from app.agent.semantic.ambiguity_resolver import AmbiguityResolver
+from app.agent.semantic.resolvers import AmbiguityResolver
 from app.services.query_explain_service import QueryExplainService
 from app.services.template_service import TemplateService, QueryTemplate
 from app.services.feedback_service import FeedbackService

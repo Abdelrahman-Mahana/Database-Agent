@@ -1,9 +1,9 @@
 """Unit tests for Forecasting Engine and Statistical Testing Engine."""
 import pytest
-from app.services.analysis.engines.forecasting import ForecastingEngine
-from app.services.analysis.engines.statistical_testing import StatisticalTestingEngine
-from app.services.analysis.analyzers.forecasting import ForecastingAnalyzer
-from app.services.analysis.analyzers.statistical_test import StatisticalTestAnalyzer
+from app.services.analysis.engines import ForecastingEngine
+from app.services.analysis.engines import StatisticalTestingEngine
+from app.services.analysis.analyzers import ForecastingAnalyzer
+from app.services.analysis.analyzers import StatisticalTestAnalyzer
 from app.agent.semantic.query_spec_builder import QuerySpecBuilder
 
 

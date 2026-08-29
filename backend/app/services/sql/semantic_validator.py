@@ -12,7 +12,7 @@ from loguru import logger
 import sqlglot
 from sqlglot import exp
 
-from app.agent.semantic.contract import (
+from app.agent.semantic.models import (
     SemanticContract,
     GrainType,
     FormulaType,
@@ -22,7 +22,7 @@ from app.agent.semantic.contract import (
     FilterSpec,
     SortSpec,
 )
-from app.utils.validator import get_target_dialect
+from app.utils.helpers import get_target_dialect
 
 
 class SQLMeaningValidator:

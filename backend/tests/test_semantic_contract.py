@@ -9,7 +9,7 @@ Tests:
 6. QuerySpec & QuerySpecBuilder Integration
 """
 import pytest
-from app.agent.semantic.contract import (
+from app.agent.semantic.models import (
     SemanticContract,
     SemanticGrain,
     GrainType,
@@ -21,9 +21,9 @@ from app.agent.semantic.contract import (
     FormulaType,
     FilterOperator,
 )
-from app.agent.semantic.metric_registry import business_metric_registry, BusinessMetricRegistry
-from app.agent.semantic.time_resolver import time_resolver, TimeResolver
-from app.agent.semantic.filter_resolver import filter_resolver, FilterResolver
+from app.agent.semantic.models import business_metric_registry, BusinessMetricRegistry
+from app.agent.semantic.resolvers import time_resolver, TimeResolver
+from app.agent.semantic.resolvers import filter_resolver, FilterResolver
 from app.agent.semantic.contract_builder import semantic_contract_builder
 from app.agent.semantic.models import QuerySpec, IntentType, ExecutionRoute
 from app.services.sql.validator import sql_validator

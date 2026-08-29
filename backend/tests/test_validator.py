@@ -1,8 +1,8 @@
 import pytest
-from app.utils.validator import validate_sql, transpile_sql_to_dialect
+from app.utils.helpers import validate_sql, transpile_sql_to_dialect
 
 def test_validate_sql_safe_queries(monkeypatch):
-    monkeypatch.setattr("app.utils.validator.get_target_dialect", lambda: "postgres")
+    monkeypatch.setattr("app.utils.helpers.get_target_dialect", lambda: "postgres")
     
     # Valid SELECT
     res = validate_sql("SELECT * FROM users;")
@@ -18,7 +18,7 @@ def test_validate_sql_safe_queries(monkeypatch):
     assert res["valid"] is True
 
 def test_validate_sql_forbidden_queries(monkeypatch):
-    monkeypatch.setattr("app.utils.validator.get_target_dialect", lambda: "postgres")
+    monkeypatch.setattr("app.utils.helpers.get_target_dialect", lambda: "postgres")
     
     # DELETE
     res = validate_sql("DELETE FROM users;")

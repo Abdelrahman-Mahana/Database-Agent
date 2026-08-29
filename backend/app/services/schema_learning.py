@@ -36,7 +36,7 @@ from loguru import logger
 
 from app.services.sql_service import SchemaService
 from app.models.schema_catalog.catalog_builder import CatalogBuilder
-from app.utils.error_parser import extract_missing_identifier
+from app.utils.helpers import extract_missing_identifier
 
 _MATCH_CUTOFF = 0.6
 

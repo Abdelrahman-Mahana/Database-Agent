@@ -8,7 +8,7 @@ from app.services.database.db import DATABASE_URL, get_db
 from app.models.schemas.chat import SchemaResponse
 from app.services.sql_service import SchemaService, SqlExecutor
 from app.services.connection_manager import connection_manager
-from app.utils.validator import get_target_dialect
+from app.utils.helpers import get_target_dialect
 
 router = APIRouter(prefix="/schema", tags=["schema"])
 schema_service = SchemaService()

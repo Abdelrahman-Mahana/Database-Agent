@@ -15,7 +15,7 @@ from app.agent.llm.prompts import (
     NO_ANSWER_RESPONSE_TEMPLATE,
 )
 from app.services.sql_service import SchemaService
-from app.utils.text_processor import extract_json_text, COMPLEX_ANALYSIS_TYPES
+from app.utils.helpers import extract_json_text, COMPLEX_ANALYSIS_TYPES
 from app.services.analytics.models import AnalyticsResult, InsightResult
 from app.services.analysis.models import AnalysisResult
 

@@ -6,7 +6,7 @@ from typing import Any
 
 from app.core.config.settings import settings
 from app.core.security.cost_guard import check_query_cost, cost_guard_failure_result
-from app.utils.validator import validate_sql
+from app.utils.helpers import validate_sql
 
 
 @dataclass

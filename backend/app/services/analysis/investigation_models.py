@@ -531,7 +531,7 @@ class InvestigationPlan(BaseModel):
         """Convert this InvestigationPlan into an AnalysisPlan for backward compatibility."""
         from app.services.analysis.models import AnalysisPlan, AnalysisTask
         from app.agent.semantic.models import AnalysisLevel, AnalysisOperation
-        from app.utils.text_processor import AnalysisType
+        from app.utils.helpers import AnalysisType
 
         data_reqs = [t.to_data_requirement() for t in self.query_tasks]
         tasks = list(self.analysis_tasks) if self.analysis_tasks else [

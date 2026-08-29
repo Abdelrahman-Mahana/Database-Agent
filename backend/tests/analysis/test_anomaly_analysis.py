@@ -1,6 +1,6 @@
 """Tests for Anomaly Detection Engine."""
 import pytest
-from app.services.analysis.engines.anomaly_detection import AnomalyDetectionEngine
+from app.services.analysis.engines import AnomalyDetectionEngine
 
 
 def test_anomaly_detection_iqr_zscore_and_pct():

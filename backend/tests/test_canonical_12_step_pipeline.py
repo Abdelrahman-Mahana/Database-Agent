@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
 from app.services.sql.result_verifier import ResultVerifier, ResultVerificationOutcome
 from app.agent.semantic.models import QueryUnderstanding, ExecutionRoute, OutputFormat
-from app.utils.text_processor import AnalysisType
+from app.utils.helpers import AnalysisType
 from app.agent.orchestration.analyst_agent import AnalystAgent
 from app.models.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
 

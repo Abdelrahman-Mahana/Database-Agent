@@ -1,6 +1,6 @@
 """Tests for Root Cause Analysis Engine."""
 import pytest
-from app.services.analysis.engines.root_cause import RootCauseEngine
+from app.services.analysis.engines import RootCauseEngine
 
 
 def test_root_cause_engine_dimensional_decomposition():

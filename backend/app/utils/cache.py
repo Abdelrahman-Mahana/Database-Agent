@@ -21,7 +21,7 @@ from cachetools import TTLCache
 from app.core.config.settings import settings
 from app.services.database.system_store import system_store
 from app.services.database.redis_store import get_redis_coordinator
-from app.utils.text_processor import normalize_question
+from app.utils.helpers import normalize_question
 
 logger = logging.getLogger(__name__)
 

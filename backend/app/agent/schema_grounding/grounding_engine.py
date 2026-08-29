@@ -16,7 +16,7 @@ from app.agent.schema_grounding.schema_intelligence import (
 )
 from app.agent.schema_grounding.relationship_graph import SchemaRelationshipGraph
 from app.agent.schema_grounding.schema_pruner import SchemaPruner
-from app.utils.text_processor import AnalysisType, COMPLEX_ANALYSIS_TYPES
+from app.utils.helpers import AnalysisType, COMPLEX_ANALYSIS_TYPES
 from app.agent.schema_grounding.arabic_terms import expand_with_arabic_terms
 from app.models.schema_catalog.models import SchemaCatalog
 from app.models.schema_catalog.retrieval import retrieve_relevant_tables, retrieve_relevant_tables_async

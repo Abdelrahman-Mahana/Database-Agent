@@ -3,14 +3,14 @@ import time
 from typing import Any, Dict, List, Optional, Union
 
 from app.services.analytics.models import AnalyticsResult, DatasetSummary
-from app.services.analytics.analyzers.base import BaseAnalyzer
-from app.services.analytics.analyzers.summary_analyzer import DatasetSummaryAnalyzer
-from app.services.analytics.analyzers.numeric_analyzer import NumericAnalyzer
-from app.services.analytics.analyzers.categorical_analyzer import CategoricalAnalyzer
+from app.services.analytics.analyzers import BaseAnalyzer
+from app.services.analytics.analyzers import DatasetSummaryAnalyzer
+from app.services.analytics.analyzers import NumericAnalyzer
+from app.services.analytics.analyzers import CategoricalAnalyzer
 from app.services.analysis.registry import ANALYSIS_REGISTRY, AnalysisStrategyRegistry
 from app.services.analysis.models import AnalysisPlan, AnalysisTask
 from app.agent.semantic.models import AnalysisOperation, QuerySpec
-from app.utils.text_processor import AnalysisType
+from app.utils.helpers import AnalysisType
 
 
 class AnalyticsEngine:

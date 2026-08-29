@@ -40,7 +40,7 @@ from app.services.analysis.models import AnalysisPlan, AnalysisTask
 from app.agent.orchestration.analyst_agent import AnalystAgent
 from app.core.config.settings import settings
 from app.agent.semantic.models import ExecutionRoute, IntentType, QueryUnderstanding
-from app.utils.text_processor import AnalysisType
+from app.utils.helpers import AnalysisType
 
 
 # ─── Test 1: Exact Total Reconciliation ───

@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, AsyncMock, patch
 from app.services.sql.validator import SQLValidator
 from app.services.sql.result_verifier import ResultVerifier
 from app.agent.semantic.models import QueryUnderstanding, ExecutionRoute, OutputFormat
-from app.utils.text_processor import AnalysisType
+from app.utils.helpers import AnalysisType
 from app.models.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
 from app.agent.orchestration.analyst_agent import AnalystAgent
 

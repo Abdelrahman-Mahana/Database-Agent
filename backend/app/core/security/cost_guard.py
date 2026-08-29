@@ -21,7 +21,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.models.schema_catalog.models import SchemaCatalog
-from app.utils.validator import get_target_dialect
+from app.utils.helpers import get_target_dialect
 from app.core.config.settings import settings
 
 logger = logging.getLogger(__name__)

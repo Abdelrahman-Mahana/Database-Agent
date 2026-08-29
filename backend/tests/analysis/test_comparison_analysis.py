@@ -1,6 +1,6 @@
 """Tests for Comparison and Aggregation Analysis Engine."""
 import pytest
-from app.services.analysis.engines.aggregation_comparison import AggregationComparisonEngine
+from app.services.analysis.engines import AggregationComparisonEngine
 
 
 def test_comparison_between_entities():

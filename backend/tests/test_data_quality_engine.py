@@ -1,7 +1,7 @@
 """Unit tests for the Data Quality Engine and DataQualityAnalyzer across all 7 dimensions."""
 import pytest
-from app.services.analysis.engines.data_quality import DataQualityEngine
-from app.services.analysis.analyzers.data_quality import DataQualityAnalyzer
+from app.services.analysis.engines import DataQualityEngine
+from app.services.analysis.analyzers import DataQualityAnalyzer
 from app.agent.semantic.query_spec_builder import QuerySpecBuilder
 
 

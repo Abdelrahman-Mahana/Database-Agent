@@ -1,5 +1,5 @@
 import pytest
-from app.utils.validator import validate_sql
+from app.utils.helpers import validate_sql
 from app.services.sql_service import is_safe_semantic_sample_column
 from app.core.security.data_masking import mask_sensitive_columns
 

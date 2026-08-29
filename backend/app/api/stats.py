@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.services.database import db as global_db
 from app.services.database.db import get_db
 from app.utils.cost_dashboard import cost_dashboard
-from app.utils.validator import validate_sql, transpile_sql_to_dialect, get_target_dialect
+from app.utils.helpers import validate_sql, transpile_sql_to_dialect, get_target_dialect
 from app.services.sql_service import SqlExecutor
 from app.services.connection_manager import connection_manager
 

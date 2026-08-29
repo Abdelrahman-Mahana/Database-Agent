@@ -1,6 +1,6 @@
 """Tests for Distribution Analysis Engine."""
 import pytest
-from app.services.analysis.engines.distribution import DistributionEngine
+from app.services.analysis.engines import DistributionEngine
 
 
 def test_distribution_percentiles_and_buckets():

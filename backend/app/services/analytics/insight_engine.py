@@ -1,10 +1,10 @@
 """Insight Engine — transforms AnalyticsResult into compact, prioritized semantic insights."""
 from typing import List
 from app.services.analytics.models import AnalyticsResult, InsightResult, InsightItem, InsightSeverity
-from app.services.analytics.insights.base import BaseInsightGenerator
-from app.services.analytics.insights.dataset_insights import DatasetInsightGenerator
-from app.services.analytics.insights.numeric_insights import NumericInsightGenerator
-from app.services.analytics.insights.categorical_insights import CategoricalInsightGenerator
+from app.services.analytics.insights import BaseInsightGenerator
+from app.services.analytics.insights import DatasetInsightGenerator
+from app.services.analytics.insights import NumericInsightGenerator
+from app.services.analytics.insights import CategoricalInsightGenerator
 
 
 class InsightEngine:

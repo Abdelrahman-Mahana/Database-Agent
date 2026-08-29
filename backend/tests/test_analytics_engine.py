@@ -5,7 +5,7 @@ from app.services.analytics.models import AnalyticsResult
 from app.services.analysis.registry import AnalysisStrategyRegistry
 from app.agent.semantic.models import AnalysisOperation, QuerySpec
 from app.agent.semantic.query_spec_builder import QuerySpecBuilder
-from app.utils.text_processor import AnalysisType
+from app.utils.helpers import AnalysisType
 
 
 def test_analytics_engine_default_profiling():

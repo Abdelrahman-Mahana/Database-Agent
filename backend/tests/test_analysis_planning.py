@@ -12,7 +12,7 @@ from app.services.analysis import (
 )
 from app.agent.semantic.models import AnalysisLevel, AnalysisOperation, QuerySpec
 from app.agent.semantic.query_spec_builder import QuerySpecBuilder
-from app.utils.text_processor import AnalysisType
+from app.utils.helpers import AnalysisType
 
 
 def test_analysis_strategy_registry_exploratory_sales():

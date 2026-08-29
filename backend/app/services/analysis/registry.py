@@ -23,7 +23,7 @@ from app.services.analysis.models import (
     DataRetrievalRequirement,
 )
 from app.agent.semantic.models import AnalysisLevel, AnalysisOperation, QuerySpec
-from app.utils.text_processor import AnalysisType
+from app.utils.helpers import AnalysisType
 
 logger = logging.getLogger(__name__)
 

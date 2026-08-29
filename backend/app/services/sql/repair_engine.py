@@ -7,7 +7,7 @@ from typing import Any, List, Optional, Tuple
 from app.services.sql_service import SchemaService
 from app.services.sql.prompt_builder import SQLPromptBuilder
 from app.services.sql.validator import SQLValidator
-from app.utils.error_parser import extract_missing_identifier
+from app.utils.helpers import extract_missing_identifier
 
 logger = logging.getLogger(__name__)
 

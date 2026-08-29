@@ -4,7 +4,7 @@ from langchain_core.prompts import PromptTemplate
 from app.agent.llm.prompts import SQL_ZERO_SHOT_TEMPLATE, SQL_FIX_TEMPLATE
 from app.agent.semantic.models import QueryUnderstanding
 from app.services.sql.dialect_rules import get_dialect_guidelines
-from app.utils.text_processor import build_temporal_grounding_hint
+from app.utils.helpers import build_temporal_grounding_hint
 from app.agent.semantic.database_knowledge_store import database_knowledge_store
 
 

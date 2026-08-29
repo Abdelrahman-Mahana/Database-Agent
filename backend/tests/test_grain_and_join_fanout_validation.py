@@ -1,6 +1,6 @@
 """Tests for Grain Validation and Join Fan-Out / Duplicate Aggregation Prevention."""
 import pytest
-from app.agent.semantic.contract import (
+from app.agent.semantic.models import (
     SemanticContract, GrainType, FormulaType, MetricSpec, DimensionSpec
 )
 from app.services.sql.semantic_validator import SQLMeaningValidator, sql_meaning_validator
@@ -183,7 +183,7 @@ def test_safe_queries_pass_grain_and_fanout_validation(ecommerce_schema):
 
 def test_scalar_grain_invariance_rejects_unaggregated_group_by(ecommerce_schema):
     """Verify that a scalar query (single total) rejects unrequested GROUP BY."""
-    from app.agent.semantic.contract import SemanticGrain
+    from app.agent.semantic.models import SemanticGrain
     validator = SQLMeaningValidator()
     contract = SemanticContract(
         contract_id="c_scalar",

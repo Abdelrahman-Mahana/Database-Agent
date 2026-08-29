@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.config.settings import settings
 from app.services.sql_service import SchemaService, SQLExecutor
 from app.utils.cache import get_cached_sql, set_cached_sql, get_cached_results, set_cached_results
-from app.utils.text_processor import extract_sql, normalize_sql, filter_schema_by_query
+from app.utils.helpers import extract_sql, normalize_sql, filter_schema_by_query
 from app.services.sql import (
     SQLPromptBuilder,
     AnswerabilityChecker,

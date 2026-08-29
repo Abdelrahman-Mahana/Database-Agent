@@ -32,7 +32,7 @@ from app.services.analysis.investigation_models import (
     QueryTask,
     QueryTaskStatus,
 )
-from app.services.analysis.analyzers.root_cause import RootCauseAnalyzer
+from app.services.analysis.analyzers import RootCauseAnalyzer
 from app.services.analysis.models import AnalysisTask, ComputationType
 from app.agent.semantic.models import AnalysisOperation
 

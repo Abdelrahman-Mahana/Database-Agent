@@ -2,7 +2,7 @@
 import pytest
 from app.agent.semantic.models import QuerySpec, AnalysisType, AnalysisOperation, AnalysisLevel
 from app.services.report_service import ReportService, ReportMode
-from app.utils.text_processor import COMPLEX_ANALYSIS_TYPES
+from app.utils.helpers import COMPLEX_ANALYSIS_TYPES
 
 
 def test_complex_vs_simple_analysis_routing():

@@ -14,7 +14,7 @@ ambiguity markers) — no extra LLM call needed to decide.
 from __future__ import annotations
 
 from app.core.config.settings import settings
-from app.utils.text_processor import AnalysisType, COMPLEX_ANALYSIS_TYPES
+from app.utils.helpers import AnalysisType, COMPLEX_ANALYSIS_TYPES
 
 # Analysis types where a single wrong JOIN/GROUP BY choice is likely and
 # costly to get wrong (ambiguous phrasing, multiple valid interpretations) —

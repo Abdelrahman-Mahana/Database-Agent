@@ -2,8 +2,8 @@
 from typing import Any, Dict, Optional
 from app.services.evaluation.models import EvaluationResult, StageLatency
 from app.services.evaluation.metrics import MetricsCollector
-from app.services.evaluation.scoring import EvaluationScorer
-from app.services.evaluation.telemetry import EvaluationTelemetry
+from app.services.evaluation.metrics import EvaluationScorer
+from app.services.evaluation.metrics import EvaluationTelemetry
 
 
 class AgentEvaluator:

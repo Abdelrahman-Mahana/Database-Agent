@@ -11,8 +11,8 @@ from app.services.analytics.models import (
 )
 from app.services.analytics.engine import AnalyticsEngine
 from app.services.analytics.insight_engine import InsightEngine
-from app.services.analytics.analyzers.base import BaseAnalyzer
-from app.services.analytics.insights.base import BaseInsightGenerator
+from app.services.analytics.analyzers import BaseAnalyzer
+from app.services.analytics.insights import BaseInsightGenerator
 
 __all__ = [
     "AnalyticsEngine",

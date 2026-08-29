@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.agent.orchestration.sql_generator import SQLGenerator
 from app.models.schema_catalog.models import SchemaCatalog, TableProfile, ColumnProfile
-from app.utils.text_processor import normalize_sql
+from app.utils.helpers import normalize_sql
 
 
 @pytest.fixture

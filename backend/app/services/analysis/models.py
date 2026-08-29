@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from app.agent.semantic.models import AnalysisLevel, AnalysisOperation
-from app.utils.text_processor import AnalysisType
+from app.utils.helpers import AnalysisType
 
 
 class ComputationType(str, Enum):

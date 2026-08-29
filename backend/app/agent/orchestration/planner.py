@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 from langchain_core.prompts import PromptTemplate
 
 from app.agent.llm.prompts import DECOMPOSE_QUESTION_TEMPLATE, SUB_QUESTION_SQL_TEMPLATE, SYNTHESIS_TEMPLATE
-from app.utils.validator import validate_sql, sanitize_query, transpile_sql_to_dialect, get_target_dialect
-from app.utils.text_processor import extract_json_text, build_result_summary, build_temporal_grounding_hint, filter_schema_by_query
+from app.utils.helpers import validate_sql, sanitize_query, transpile_sql_to_dialect, get_target_dialect
+from app.utils.helpers import extract_json_text, build_result_summary, build_temporal_grounding_hint, filter_schema_by_query
 from app.services.sql_service import SQLExecutor
 from app.services.sql.control_gate import SQLControlGate
 from app.agent.semantic.query_spec_builder import QuerySpecBuilder

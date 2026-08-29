@@ -8,11 +8,11 @@ from app.agent.semantic.models import (
     OutputFormat, UnderstandingConfidence, AnalysisLevel, AnalysisOperation,
     infer_analysis_profile,
 )
-from app.agent.semantic.metric_registry import business_metric_registry
-from app.agent.semantic.synonyms import resolve_synonyms
+from app.agent.semantic.models import business_metric_registry
+from app.agent.semantic.resolvers import resolve_synonyms
 from app.agent.semantic.llm_understanding import LLMQueryUnderstander
-from app.agent.semantic.ambiguity_resolver import ambiguity_resolver, AmbiguityResolution
-from app.utils.text_processor import classify_analysis_type, AnalysisType, COMPLEX_ANALYSIS_TYPES
+from app.agent.semantic.resolvers import ambiguity_resolver, AmbiguityResolution
+from app.utils.helpers import classify_analysis_type, AnalysisType, COMPLEX_ANALYSIS_TYPES
 from app.models.schema_catalog.models import SchemaCatalog
 from app.core.config.settings import settings
 
@@ -592,7 +592,7 @@ class QuerySpecBuilder:
         time_expressions.extend(year_matches)
 
         # Advanced Time Resolution via TimeResolver
-        from app.agent.semantic.time_resolver import time_resolver
+        from app.agent.semantic.resolvers import time_resolver
         resolved_time = time_resolver.resolve_time(question, schema=db_ctx.schema if db_ctx else None, candidate_tables=entities)
         if resolved_time and resolved_time.raw_expression and resolved_time.raw_expression not in time_expressions:
             time_expressions.append(resolved_time.raw_expression)

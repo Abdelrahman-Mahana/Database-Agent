@@ -8,7 +8,7 @@ from app.agent.semantic.models import (
     OutputFormat,
     infer_analysis_profile,
 )
-from app.utils.text_processor import classify_analysis_type, AnalysisType
+from app.utils.helpers import classify_analysis_type, AnalysisType
 
 
 class SemanticQueryParser:

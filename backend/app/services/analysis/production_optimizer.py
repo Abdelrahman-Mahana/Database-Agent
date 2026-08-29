@@ -29,7 +29,7 @@ from app.services.analysis.investigation_models import (
     QueryTaskStatus,
 )
 from app.core.config.settings import settings
-from app.utils.text_processor import normalize_question
+from app.utils.helpers import normalize_question
 
 logger = logging.getLogger(__name__)
 

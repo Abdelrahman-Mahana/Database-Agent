@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session
 from loguru import logger
 
 from app.services.sql_service import SQLExecutor
-from app.utils.validator import validate_sql, sanitize_query, transpile_sql_to_dialect, get_target_dialect
-from app.utils.text_processor import extract_sql, normalize_sql
+from app.utils.helpers import validate_sql, sanitize_query, transpile_sql_to_dialect, get_target_dialect
+from app.utils.helpers import extract_sql, normalize_sql
 
 
 class SQLValidator:
@@ -399,7 +399,7 @@ class SQLValidator:
         if query_spec is None:
             return True, []
 
-        from app.agent.semantic.contract import SemanticContract
+        from app.agent.semantic.models import SemanticContract
         contract = getattr(query_spec, "semantic_contract", None)
         if not isinstance(contract, SemanticContract):
             contract = query_spec
