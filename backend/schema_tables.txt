@@ -1,0 +1,60 @@
+Table: Does
+Columns: ['medicine_prescription_id', 'ivf_medication_doses_id']
+---
+Table: Dose
+Columns: ['medicine_prescription_id', 'ivf_medication_doses_id']
+---
+Table: _unknown_baby_history_rel
+Columns: ['baby_history_id', '_unknown_id']
+---
+Table: abg
+Columns: ['id', 'signature', 'admission_id', 'create_uid', 'write_uid', 'mode', 'fio2', 'ps', 'peep', 'site', 'ph', 'pco2', 'p02', 'hco3', 'be', 'o2_sat', 'date', 'create_date', 'write_date']
+---
+Table: account_account
+Columns: ['id', 'currency_id', 'company_id', 'group_id', 'root_id', 'create_uid', 'write_uid', 'code', 'account_type', 'internal_group', 'name', 'note', 'deprecated', 'include_initial_balance', 'reconcile', 'non_trade', 'create_date', 'write_date', 'asset_model', 'create_asset', 'multiple_assets_per_line', 'disallowed_expenses_category_id', 'account_eng_arabic']
+---
+Table: account_account_account_auto_reconcile_wizard_rel
+Columns: ['account_auto_reconcile_wizard_id', 'account_account_id']
+---
+Table: account_account_account_journal_rel
+Columns: ['account_account_id', 'account_journal_id']
+---
+Table: account_account_account_tag
+Columns: ['account_account_id', 'account_account_tag_id']
+---
+Table: account_account_exclude_res_currency_provision
+Columns: ['account_account_id', 'res_currency_id']
+---
+Table: account_account_tag
+Columns: ['id', 'color', 'country_id', 'create_uid', 'write_uid', 'applicability', 'name', 'active', 'tax_negate', 'create_date', 'write_date']
+---
+Table: account_account_tag_account_move_line_rel
+Columns: ['account_move_line_id', 'account_account_tag_id']
+---
+Table: account_account_tag_account_tax_repartition_line_rel
+Columns: ['account_tax_repartition_line_id', 'account_account_tag_id']
+---
+Table: account_account_tag_product_template_rel
+Columns: ['product_template_id', 'account_account_tag_id']
+---
+Table: account_account_tax_default_rel
+Columns: ['account_id', 'tax_id']
+---
+Table: account_accrued_orders_wizard
+Columns: ['id', 'company_id', 'journal_id', 'currency_id', 'account_id', 'create_uid', 'write_uid', 'date', 'reversal_date', 'amount', 'create_date', 'write_date']
+---
+Table: account_analytic_account
+Columns: ['id', 'plan_id', 'root_plan_id', 'company_id', 'partner_id', 'create_uid', 'write_uid', 'code', 'name', 'active', 'create_date', 'write_date']
+---
+Table: account_analytic_account_account_transfer_model_line_rel
+Columns: ['account_transfer_model_line_id', 'account_analytic_account_id']
+---
+Table: account_analytic_applicability
+Columns: ['id', 'analytic_plan_id', 'company_id', 'create_uid', 'write_uid', 'business_domain', 'applicability', 'create_date', 'write_date', 'product_categ_id', 'account_prefix']
+---
+Table: account_analytic_distribution_model
+Columns: ['id', 'partner_id', 'partner_category_id', 'company_id', 'create_uid', 'write_uid', 'analytic_distribution', 'create_date', 'write_date', 'product_id', 'product_categ_id', 'account_prefix']
+---
+Table: account_analytic_line
+Columns: ['id', 'product_uom_id', 'account_id', 'partner_id', 'user_id', 'company_id', 'currency_id', 'create_uid', 'write_uid', 'name', 'category', 'date', 'amount', 'create_date', 'write_date', 'unit_amount', 'product_id', 'general_account_id', 'journal_id', 'move_line_id', 'code', 'ref', 'so_line', 'x_plan2_id', 'x_plan4_id', 'x_plan6_id', 'x_plan8_id', 'x_plan9_id', 'x_plan20_id', 'x_plan24_id', 'x_plan25_id']
+---
