@@ -34,7 +34,8 @@ import {
   TrendingUp,
   Download,
   Bookmark,
-  FileText
+  FileText,
+  MessageSquarePlus
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -797,7 +798,15 @@ function ChatContent() {
   const initialPrompt = searchParams.get("prompt") || "";
 
   const queryClient = useQueryClient();
-  const { activeDatabase, chatMessages: messages, setChatMessages: setMessages, clearChatMessages } = useAppStore();
+  const { 
+    activeDatabase, 
+    chatSessionsData,
+    sessionId,
+    setChatMessages: setMessages, 
+    clearChatMessages 
+  } = useAppStore();
+  const currentSessionId = sessionId || "default_session";
+  const messages = chatSessionsData[currentSessionId] || [];
   const hasHandledInitialPromptRef = useRef(false);
   const [inputMessage, setInputMessage] = useState("");
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
@@ -827,6 +836,53 @@ function ChatContent() {
   });
   const preferences = prefData || {};
 
+  // Fetch history if we don't have it locally
+  useQuery({
+    queryKey: ['chatHistory', currentSessionId],
+    queryFn: async () => {
+      if (messages.length > 0 || currentSessionId === "default_session") return null;
+      try {
+        const res = await apiClient.get(`/chat/history?session_id=${currentSessionId}`);
+        const turns = res.data?.turns || [];
+        if (turns.length > 0 && messages.length === 0) {
+          const loadedMsgs: MessageItem[] = [];
+          turns.forEach((t: any, idx: number) => {
+            loadedMsgs.push({
+              id: `history-user-${idx}`,
+              sender: "user",
+              text: t.question,
+              questionLang: isArabicText(t.question) ? "ar" : "en",
+              timestamp: new Date(t.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            });
+            loadedMsgs.push({
+              id: `history-ast-${idx}`,
+              sender: "assistant",
+              text: t.result_summary,
+              questionLang: isArabicText(t.question) ? "ar" : "en",
+              timestamp: new Date(t.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              response: {
+                question: t.question,
+                sql: t.sql,
+                results: [],
+                report: t.result_summary,
+                chart_suggestion: {},
+                success: true,
+                request_status: "completed",
+                answer_status: "answered",
+                error: null
+              } as any
+            });
+          });
+          setMessages(loadedMsgs);
+        }
+        return turns;
+      } catch {
+        return null;
+      }
+    },
+    enabled: messages.length === 0 && currentSessionId !== "default_session",
+  });
+
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
@@ -854,7 +910,7 @@ function ChatContent() {
       const timeoutMs = (preferences.timeoutSeconds || 180) * 1000;
       const res = await apiClient.post('/chat', {
         message: messageText,
-        session_id: "default_session",
+        session_id: currentSessionId,
       }, {
         timeout: timeoutMs
       });
@@ -876,6 +932,9 @@ function ChatContent() {
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
+      
+      // Invalidate the sidebar sessions list so it picks up new chats
+      queryClient.invalidateQueries({ queryKey: ['chatSessions'] });
     },
     onError: (error: any, messageText: string) => {
       const isAr = isArabicText(messageText);
@@ -933,7 +992,8 @@ function ChatContent() {
 
   const handleClearHistory = async () => {
     try {
-      await apiClient.delete('/chat/history?session_id=default_session');
+      await apiClient.delete(`/chat/history?session_id=${currentSessionId}`);
+      queryClient.invalidateQueries({ queryKey: ['chatSessions'] });
     } catch {
       // ignore clear errors
     }
@@ -994,7 +1054,7 @@ function ChatContent() {
   const isLoadingRtl = latestMessage ? (latestMessage.questionLang === "ar" || isArabicText(latestMessage.text)) : false;
 
   return (
-    <div className="flex-1 flex flex-col h-full w-full max-w-full space-y-4">
+    <div className="flex-1 flex flex-col w-full max-w-full space-y-4 min-h-0">
       {/* Top Header */}
       <div className="flex items-center justify-between border-b border-border/40 pb-4 shrink-0">
         <div className="flex items-center gap-3">
@@ -1015,6 +1075,16 @@ function ChatContent() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => useAppStore.getState().setSessionId(Date.now().toString(36) + Math.random().toString(36).substring(2, 8))}
+            className="gap-1.5 text-xs bg-primary/90 hover:bg-primary text-primary-foreground mr-1"
+          >
+            <MessageSquarePlus className="h-3.5 w-3.5" />
+            New Chat
+          </Button>
+
           {messages.length > 0 && (
             <>
               <Button
@@ -1256,13 +1326,28 @@ function ChatContent() {
 }
 
 export default function ChatPage() {
-  return (
-    <Suspense fallback={
+  const [isMounted, setIsMounted] = useState(false);
+  useEffect(() => setIsMounted(true), []);
+
+  if (!isMounted) {
+    return (
       <div className="flex-1 flex items-center justify-center p-12 text-muted-foreground">
         Loading Chat Interface...
       </div>
+    );
+  }
+
+  return (
+    <Suspense fallback={
+      <div className="flex-1 h-full flex items-center justify-center p-12 text-muted-foreground">
+        Loading Chat Interface...
+      </div>
     }>
-      <ChatContent />
+      <div className="flex-1 flex overflow-hidden bg-background rounded-xl border border-border/40 shadow-sm min-h-0">
+        <div className="flex-1 flex flex-col overflow-hidden p-6 min-h-0">
+          <ChatContent />
+        </div>
+      </div>
     </Suspense>
   );
 }

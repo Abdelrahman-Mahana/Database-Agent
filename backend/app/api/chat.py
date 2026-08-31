@@ -144,6 +144,19 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db)) -> ChatRespo
     return ChatResponse(**result)
 
 
+@router.get("/sessions")
+async def get_sessions() -> dict:
+    """
+    Retrieve all historical chat sessions.
+    
+    Returns:
+        dict: A dictionary containing a list of sessions.
+    """
+    from app.services.database.system_store import system_store
+    sessions = system_store.get_chat_sessions()
+    return {"sessions": sessions}
+
+
 @router.get("/history")
 async def get_history(session_id: str = "default_session") -> dict:
     """

@@ -260,6 +260,48 @@ class SystemStore:
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_claim_feedback_claim ON agent_claim_feedback (claim_id);"))
 
             # -----------------------------------------------------------------
+            # 6.6 Chat History Tables
+            # -----------------------------------------------------------------
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS chat_history_sessions (
+                    session_id VARCHAR(255) PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    created_at DOUBLE PRECISION NOT NULL,
+                    updated_at DOUBLE PRECISION NOT NULL
+                );
+            """ if not self.is_sqlite else """
+                CREATE TABLE IF NOT EXISTS chat_history_sessions (
+                    session_id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL
+                );
+            """))
+
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS chat_history_turns (
+                    turn_id SERIAL PRIMARY KEY,
+                    session_id VARCHAR(255) NOT NULL,
+                    question TEXT NOT NULL,
+                    sql TEXT NOT NULL,
+                    result_summary TEXT NOT NULL,
+                    intent VARCHAR(64) NOT NULL,
+                    timestamp DOUBLE PRECISION NOT NULL
+                );
+            """ if not self.is_sqlite else """
+                CREATE TABLE IF NOT EXISTS chat_history_turns (
+                    turn_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    question TEXT NOT NULL,
+                    sql TEXT NOT NULL,
+                    result_summary TEXT NOT NULL,
+                    intent TEXT NOT NULL,
+                    timestamp REAL NOT NULL
+                );
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_chat_turns_session ON chat_history_turns (session_id);"))
+
+            # -----------------------------------------------------------------
             # 7. Authoritative Normalized Schema Catalog Tables
             # -----------------------------------------------------------------
             conn.execute(text("""
@@ -666,6 +708,109 @@ class SystemStore:
                 return True
         except Exception as e:
             logger.warning("Error deleting from memory store", error=str(e))
+            return False
+
+    # -------------------------------------------------------------------------
+    # 4.5 Chat History Methods
+    # -------------------------------------------------------------------------
+
+    def get_chat_sessions(self) -> list[dict[str, Any]]:
+        """Fetch all chat sessions ordered by updated_at descending."""
+        try:
+            with self.engine.connect() as conn:
+                rows = conn.execute(
+                    text("SELECT session_id, title, created_at, updated_at FROM chat_history_sessions ORDER BY updated_at DESC")
+                ).fetchall()
+                return [
+                    {
+                        "session_id": str(r[0]),
+                        "title": str(r[1]),
+                        "created_at": float(r[2]),
+                        "updated_at": float(r[3]),
+                    }
+                    for r in rows
+                ]
+        except Exception as e:
+            logger.warning("Error fetching chat sessions", error=str(e))
+            return []
+
+    def get_chat_history(self, session_id: str) -> list[dict[str, Any]]:
+        """Fetch all turns for a given session."""
+        try:
+            with self.engine.connect() as conn:
+                rows = conn.execute(
+                    text("""
+                        SELECT question, sql, result_summary, intent, timestamp 
+                        FROM chat_history_turns 
+                        WHERE session_id = :s 
+                        ORDER BY turn_id ASC
+                    """),
+                    {"s": session_id}
+                ).fetchall()
+                return [
+                    {
+                        "question": str(r[0]),
+                        "sql": str(r[1]),
+                        "result_summary": str(r[2]),
+                        "intent": str(r[3]),
+                        "timestamp": float(r[4])
+                    }
+                    for r in rows
+                ]
+        except Exception as e:
+            logger.warning("Error fetching chat history", error=str(e))
+            return []
+
+    def add_chat_turn(self, session_id: str, question: str, sql: str, result_summary: str, intent: str) -> bool:
+        """Add a turn to a chat session, creating the session if it doesn't exist."""
+        try:
+            now = float(time.time())
+            # Default title is the first question
+            title = question[:50] + "..." if len(question) > 50 else question
+            
+            with self._lock, self.engine.begin() as conn:
+                # Upsert session
+                conn.execute(
+                    text("""
+                        INSERT INTO chat_history_sessions (session_id, title, created_at, updated_at)
+                        VALUES (:s, :title, :now, :now)
+                        ON CONFLICT (session_id) DO UPDATE SET
+                            updated_at = :now
+                    """),
+                    {"s": session_id, "title": title, "now": now}
+                )
+                
+                # Insert turn
+                if self.is_sqlite:
+                    conn.execute(
+                        text("""
+                            INSERT INTO chat_history_turns (session_id, question, sql, result_summary, intent, timestamp)
+                            VALUES (:s, :q, :sql, :rs, :intent, :ts)
+                        """),
+                        {"s": session_id, "q": question, "sql": sql, "rs": result_summary, "intent": intent, "ts": now}
+                    )
+                else:
+                    conn.execute(
+                        text("""
+                            INSERT INTO chat_history_turns (session_id, question, sql, result_summary, intent, timestamp)
+                            VALUES (:s, :q, :sql, :rs, :intent, :ts)
+                        """),
+                        {"s": session_id, "q": question, "sql": sql, "rs": result_summary, "intent": intent, "ts": now}
+                    )
+                return True
+        except Exception as e:
+            logger.warning("Error adding chat turn", error=str(e))
+            return False
+
+    def delete_chat_session(self, session_id: str) -> bool:
+        """Delete a chat session and all its turns."""
+        try:
+            with self._lock, self.engine.begin() as conn:
+                conn.execute(text("DELETE FROM chat_history_turns WHERE session_id = :s"), {"s": session_id})
+                conn.execute(text("DELETE FROM chat_history_sessions WHERE session_id = :s"), {"s": session_id})
+                return True
+        except Exception as e:
+            logger.warning("Error deleting chat session", error=str(e))
             return False
 
     # -------------------------------------------------------------------------

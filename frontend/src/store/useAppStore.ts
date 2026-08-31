@@ -16,7 +16,7 @@ interface AppState {
   activeDatabase: string | null;
   activeDatabaseType: string | null;
   theme: 'light' | 'dark';
-  chatMessages: ChatMessage[];
+  chatSessionsData: Record<string, ChatMessage[]>;
   setSessionId: (id: string) => void;
   setActiveDatabase: (db: string, type: string) => void;
   toggleTheme: () => void;
@@ -27,19 +27,35 @@ interface AppState {
 export const useAppStore = create<AppState>()(
   devtools(
     persist(
-      (set) => ({
+      (set, get) => ({
         sessionId: null,
         activeDatabase: null,
         activeDatabaseType: null,
         theme: 'dark', // Dark mode by default
-        chatMessages: [],
+        chatSessionsData: {},
         setSessionId: (id) => set({ sessionId: id }),
         setActiveDatabase: (db, type) => set({ activeDatabase: db, activeDatabaseType: type }),
         toggleTheme: () => set((state) => ({ theme: state.theme === 'dark' ? 'light' : 'dark' })),
-        setChatMessages: (messages) => set((state) => ({
-          chatMessages: typeof messages === 'function' ? messages(state.chatMessages) : messages,
-        })),
-        clearChatMessages: () => set({ chatMessages: [] }),
+        setChatMessages: (messages) => set((state) => {
+          const sid = state.sessionId || "default_session";
+          const currentMsgs = state.chatSessionsData[sid] || [];
+          const newMsgs = typeof messages === 'function' ? messages(currentMsgs) : messages;
+          return {
+            chatSessionsData: {
+              ...state.chatSessionsData,
+              [sid]: newMsgs
+            }
+          };
+        }),
+        clearChatMessages: () => set((state) => {
+          const sid = state.sessionId || "default_session";
+          return {
+            chatSessionsData: {
+              ...state.chatSessionsData,
+              [sid]: []
+            }
+          };
+        }),
       }),
       {
         name: 'ai-db-analyst-storage',

@@ -23,11 +23,11 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="font-sans flex h-screen overflow-hidden bg-background text-foreground antialiased" suppressHydrationWarning>
+      <body className="font-sans flex flex-col md:flex-row h-[100dvh] overflow-hidden bg-background text-foreground antialiased" suppressHydrationWarning>
         <QueryProvider>
           <Sidebar />
           <div className="flex flex-1 flex-col overflow-hidden">
-            <main className="flex-1 overflow-hidden p-6 bg-muted/20 flex flex-col">
+            <main className="flex-1 overflow-hidden p-2 sm:p-6 bg-muted/20 flex flex-col">
               {children}
             </main>
           </div>

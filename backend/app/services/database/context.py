@@ -318,6 +318,10 @@ class DatabaseContext:
                 # Core Business & ERP Domain Synonyms (Arabic + English)
                 DOMAIN_SYNONYMS = [
                     (
+                        {"account", "accounts", "حساب", "حسابات", "الحساب", "الحسابات"},
+                        {"account_account"}
+                    ),
+                    (
                         {"invoice", "invoices", "bill", "bills", "billing", "فاتورة", "فواتير", "الفاتورة", "الفواتير"},
                         {"account_move", "account_move_line", "account_invoice", "inpatient_invoice"}
                     ),

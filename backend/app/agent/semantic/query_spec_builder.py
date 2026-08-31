@@ -872,9 +872,9 @@ class QuerySpecBuilder:
         if any(p == clean_normalized for p in greeting_phrases) or any(clean_normalized.startswith(p + " ") for p in ("hi", "hello", "hey", "مرحبا", "اهلا", "أهلا", "thanks", "thank you")):
             is_ar = any("\u0600" <= c <= "\u06FF" for c in normalized)
             reply = (
-                "أهلاً بيك! أنا مساعد قواعد بيانات تفاعلي. اسألني عن البيانات أو الجداول أو أي شيء عام، وأنا أحدد لك الطريقة المناسبة للإجابة."
+                "أهلاً بك! 👋\n\nأنا مساعدك الذكي الخاص بقواعد البيانات. أنا هنا لمساعدتك في استكشاف بياناتك وتحليلها بكل سهولة.\n\nيمكنك أن تسألني بأي طريقة (حتى العامية!) عن أي شيء، مثل:\n- 📊 **تحليل البيانات:** (مثال: *كام حساب عندنا في النظام؟*)\n- 🔍 **فهم الجداول:** (مثال: *إيه الجداول المتاحة في الداتا بيز؟*)\n- 💡 **أسئلة عامة:** وسأقوم بالرد عليك تلقائياً بأفضل طريقة.\n\nكيف يمكنني مساعدتك اليوم؟ 🚀"
                 if is_ar else
-                "Hello! I'm a conversational database assistant. Ask me about your data, schema, or anything general, and I'll choose the right way to help."
+                "Hello! 👋\n\nI'm your intelligent database assistant. I'm here to help you explore and analyze your data seamlessly.\n\nFeel free to ask me anything in plain English, such as:\n- 📊 **Data Analysis:** (e.g., *How many accounts are in the system?*)\n- 🔍 **Schema Exploration:** (e.g., *What tables do we have in the database?*)\n- 💡 **General Questions:** And I'll automatically choose the best way to answer.\n\nHow can I help you today? 🚀"
             )
             return ExecutionRoute.CONVERSATION, IntentType.OFF_TOPIC, 0.99, reply
 
@@ -955,8 +955,10 @@ class QuerySpecBuilder:
         common_business_entities = {
             "customer", "customers", "client", "clients", "invoice", "invoices", "order", "orders",
             "sales", "product", "products", "employee", "employees", "user", "users", "partner", "partners",
+            "account", "accounts",
             "عميل", "العميل", "عملاء", "العملاء", "زبون", "زبائن", "فاتورة", "فواتير", "الفاتورة", "الفواتير",
             "طلب", "طلبات", "مبيعات", "المبيعات", "منتج", "منتجات", "المنتجات", "موظف", "موظفين",
+            "حساب", "الحساب", "حسابات", "الحسابات",
         }
         if not has_semantic_anchor and bool(words.intersection(common_business_entities)):
             has_semantic_anchor = True
