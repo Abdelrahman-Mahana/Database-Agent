@@ -7,14 +7,14 @@ import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/services/api";
 import { useAppStore } from "@/store/useAppStore";
 import { SchemaResponse } from "@/types/api";
-import { 
-  LayoutDashboard, 
-  Database, 
-  MessageSquare, 
-  History, 
-  Activity, 
-  Settings, 
-  CodeXml, 
+import {
+  LayoutDashboard,
+  Database,
+  MessageSquare,
+  History,
+  Activity,
+  Settings,
+  CodeXml,
   Radio,
   Menu,
   X
@@ -68,7 +68,7 @@ export function Sidebar() {
           </div>
           <span className="text-sm font-bold">Database Analyst</span>
         </div>
-        <button 
+        <button
           onClick={() => setIsOpen(true)}
           className="p-2 -mr-2 rounded-md hover:bg-secondary/50 text-muted-foreground"
         >
@@ -78,7 +78,7 @@ export function Sidebar() {
 
       {/* Overlay */}
       {isOpen && (
-        <div 
+        <div
           className="md:hidden fixed inset-0 z-40 bg-background/80 backdrop-blur-sm"
           onClick={() => setIsOpen(false)}
         />
@@ -97,11 +97,10 @@ export function Sidebar() {
             </div>
             <div className="flex flex-col min-w-0">
               <span className="text-sm font-bold leading-tight truncate">Database Analyst</span>
-              <span className="text-[10px] text-muted-foreground truncate">Enterprise Intelligence</span>
             </div>
           </div>
-          <button 
-            onClick={() => setIsOpen(false)} 
+          <button
+            onClick={() => setIsOpen(false)}
             className="md:hidden p-1.5 rounded-md hover:bg-secondary/50 text-muted-foreground"
           >
             <X className="h-4 w-4" />
